@@ -26,5 +26,5 @@ and the standard-library Python test suite. On Windows it also provides the comm
 for the WRY host; WebView2 must be installed separately.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md), the architecture notes under
-`docs/architecture/`, and [CONTRIBUTING.md](CONTRIBUTING.md) for scope and
-security constraints.
+`docs/architecture/`, [docs/benchmarks.md](docs/benchmarks.md), and
+[CONTRIBUTING.md](CONTRIBUTING.md) for scope and security constraints.
