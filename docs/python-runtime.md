@@ -5,10 +5,12 @@ the PyO3 ABI used to build the host. For the current host this is CPython
 3.12 x64. Pass its extracted directory to `--python-runtime`, or set
 `KOUROSH_PYTHON_RUNTIME`.
 
-The directory must contain a versioned `python3*.dll`, a `python*.zip`
-standard library, and the distributor's license/redistribution notice. The
-build copies these files without modifying them. It rejects incomplete input
-instead of falling back to a system interpreter.
+The directory must contain `python312.dll`, `python312.zip`,
+`python312._pth`, and the distributor's license/redistribution notice. The
+`._pth` file is inspected and must not contain `import site`, absolute paths,
+or parent-directory escapes. The build copies these files without modifying
+them. It rejects incomplete or ABI-mismatched input instead of falling back
+to a system interpreter.
 
 At launch the packaged host sets `PYTHONHOME` to the bundled directory,
 disables the user site, clears ambient `PYTHONPATH`, and inserts only

@@ -29,3 +29,9 @@ packaged manifest against the executable directory and clears ambient
 `PYTHONPATH`/user-site imports. A package can still contain a malicious Python
 application or dependency; package signing, dependency review, and clean-VM
 verification remain release responsibilities.
+
+WebView2 browser state is placed in a per-identifier WRY `WebContext` under
+`%LOCALAPPDATA%\Kourosh`, with canonicalization and symlink checks. The
+executable directory is never used for writable browser state, so a read-only
+installation does not weaken isolation or force unrelated applications to
+share cookies and cache.

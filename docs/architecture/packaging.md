@@ -29,6 +29,18 @@ the packaged app and framework SDK, disables the user site, and loads the
 frontend through the existing trusted `https://kourosh.app` origin. It does
 not start Node.js or a local HTTP server.
 
+Before creating the WebView, the host creates a per-identifier WRY
+`WebContext` under `%LOCALAPPDATA%\Kourosh\<identifier>`. The path is created
+and canonicalized under the Windows user profile, and symlinked data roots are
+rejected. This keeps read-only installations working and prevents unrelated
+applications from sharing browser cookies/cache accidentally.
+
+The packager requires the CPython 3.12 x64 DLL, standard-library ZIP, license,
+and `python312._pth`. The `_pth` file must not enable `import site` or external
+paths. The runtime DLLs are retained under `python/` and copied beside the
+host executable because Windows resolves import-table DLLs before Python
+initialization.
+
 The build stages into a temporary sibling directory and moves the finished
 directory into place. Existing artifact directories are never overwritten.
 Symlinked resources and paths outside the project are rejected. The ZIP uses

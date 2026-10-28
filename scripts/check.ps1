@@ -12,6 +12,7 @@ python -m unittest discover -s tests -p "test_*.py" -q
 if (Get-Command node -ErrorAction SilentlyContinue) {
     node --check examples/hello-vanilla/bridge.js
     node --check examples/hello-vanilla/app.js
+    node --check examples/notes-react-ts/public/kourosh-bridge.js
     node --check packages/sdk/kourosh.js
     node --check packages/sdk/index.js
     node --check scripts/bench-sdk.mjs

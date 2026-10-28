@@ -56,3 +56,8 @@ this is evidence about package contents, not a substitute for a clean-machine
 process inspection. Record the Windows build, CPython and WebView2 versions,
 artifact SHA-256, host commit, and observations. Linux cannot perform this
 smoke test.
+
+`scripts/package-smoke.ps1` is the single Phase 4B validation entry point. Its
+`-ResultsPath` option writes JSON for checks that actually ran and labels the
+visible frontend/RPC assertions as `manual`. The SQLite notes example is the
+recommended React/TypeScript application for this procedure.

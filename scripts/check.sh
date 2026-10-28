@@ -35,6 +35,7 @@ PYTHONPATH="$repo_root/python${PYTHONPATH:+:$PYTHONPATH}" python3 -m unittest di
 if command -v node >/dev/null 2>&1; then
   node --check examples/hello-vanilla/bridge.js
   node --check examples/hello-vanilla/app.js
+  node --check examples/notes-react-ts/public/kourosh-bridge.js
   node --check packages/sdk/kourosh.js
   node --check packages/sdk/index.js
   node --check scripts/bench-sdk.mjs

@@ -47,6 +47,12 @@ kourosh dev
 Use `kourosh frontend build` followed by `kourosh run` for static production
 frontend execution; Node.js is not part of that runtime path.
 
+The real SQLite notes application in [examples/notes-react-ts](examples/notes-react-ts)
+demonstrates React/TypeScript CRUD methods backed by embedded Python and a
+user-data SQLite database. Its typecheck, production Vite build, and Python
+CRUD tests run locally; its native Windows validation uses
+`scripts/package-smoke.ps1`.
+
 See [docs/javascript-sdk.md](docs/javascript-sdk.md),
 [docs/react-quickstart.md](docs/react-quickstart.md), and
 [docs/vite-development.md](docs/vite-development.md) for the frontend

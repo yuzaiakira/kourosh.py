@@ -66,3 +66,19 @@ package with WebView2 and verifies frontend rendering, RPC success and
 exceptions, clean shutdown, prerequisite diagnostics, and startup/memory
 measurements. Code signing, installer certification, native-extension
 dependency audits, and clean-VM verification are next release tasks.
+
+## Phase 5A — production hardening (implementation in progress; Windows gate pending)
+
+- Packaged CPython input now requires the matching 3.12 DLL/stdlib and a
+  restrictive `python312._pth`; the host clears ambient Python search paths.
+- WebView2 receives an application-specific writable data directory under the
+  Windows user profile through WRY `WebContext`, including symlink and escape
+  checks.
+- `scripts/package-smoke.ps1` is the single Windows validation entry point and
+  can emit JSON results; `scripts/bench.ps1` records process-tree, WebView2,
+  CPU, startup, and shutdown measurements without inventing GUI timings.
+- `examples/notes-react-ts` exercises a real SQLite CRUD app through the
+  existing secure bridge and SDK.
+
+Phase 5A remains pending for clean Windows execution, installer validation,
+and measured production startup/memory/RPC evidence.

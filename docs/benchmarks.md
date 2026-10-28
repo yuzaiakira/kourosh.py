@@ -77,3 +77,10 @@ current environment is Linux and has no runnable Windows host. Run
 sizes, cold start to the first visible window, the full process-tree working
 set, and shutdown cleanup, then add the machine, Windows build, CPython,
 WebView2, Rust profile, and commit SHA alongside the results.
+
+On Windows, `scripts/bench.ps1 -Samples 1000 -Concurrency 8
+-ResultsPath windows-benchmark-results.json` records internal RPC output,
+process-tree and WebView2 working set, observed process startup, an idle CPU
+sample, and shutdown duration. It labels visible-window timing as manual and
+keeps internal RPC measurements separate from full WebView2 interaction. Do
+not commit the JSON output when it contains machine-specific information.

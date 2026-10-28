@@ -13,5 +13,11 @@ the bridge worker path, never directly on the UI event-loop callback. Closing a
 window marks both the dispatcher and runtime closed, rejects queued work, and
 prevents new calls. PyO3 owns the process-global interpreter; Kourosh.py does
 not call unsafe `Py_Finalize` while Python objects or other Rust handles may
-still exist. Redistribution of a private CPython build remains Windows
-packaging work for Phase 3.
+still exist. Redistribution of a private CPython build is handled by the
+Windows packaging pipeline, with clean-machine runtime validation still
+pending.
+
+An RPC timeout only bounds the caller's wait and response delivery. Python code
+already running on the worker may finish later; the runtime does not attempt to
+force-cancel a CPython thread. Applications that need cancellation should
+expose cooperative cancellation state in their own handler contract.
