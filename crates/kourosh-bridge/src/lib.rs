@@ -840,6 +840,7 @@ pub fn greet_result(name: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
     fn request(id: &str, name: &str) -> String {
         serde_json::json!({"id": id, "method": "greet", "args": {"name": name}}).to_string()
@@ -1187,6 +1188,23 @@ mod tests {
             Ok(greet_result("soak"))
         }));
         let deadline = Instant::now() + Duration::from_millis(duration_ms);
+        let sampling = Arc::new(AtomicBool::new(true));
+        let resource_samples = Arc::new(Mutex::new(vec![dispatcher.resource_snapshot(0)]));
+        let sampler_dispatcher = Arc::clone(&dispatcher);
+        let sampler_sampling = Arc::clone(&sampling);
+        let sampler_samples = Arc::clone(&resource_samples);
+        let sampler = thread::spawn(move || {
+            while sampler_sampling.load(Ordering::Acquire) {
+                thread::sleep(Duration::from_millis(100));
+                if sampler_sampling.load(Ordering::Acquire) {
+                    let active = sampler_dispatcher.active_requests();
+                    sampler_samples
+                        .lock()
+                        .unwrap()
+                        .push(sampler_dispatcher.resource_snapshot(active));
+                }
+            }
+        });
         let successes = Arc::new(AtomicUsize::new(0));
         let rejected = Arc::new(AtomicUsize::new(0));
         let mut workers = Vec::with_capacity(concurrency);
@@ -1215,6 +1233,8 @@ mod tests {
         for worker in workers {
             worker.join().unwrap();
         }
+        sampling.store(false, Ordering::Release);
+        sampler.join().unwrap();
         dispatcher.shutdown();
         let cleanup_deadline = Instant::now() + Duration::from_secs(2);
         while dispatcher.active_requests() > 0 && Instant::now() < cleanup_deadline {
@@ -1227,5 +1247,36 @@ mod tests {
         assert_eq!(dispatcher.queued_requests(), 0);
         assert_eq!(metrics.active, 0);
         assert_eq!(metrics.queued, 0);
+        resource_samples
+            .lock()
+            .unwrap()
+            .push(dispatcher.resource_snapshot(0));
+        let samples = resource_samples.lock().unwrap();
+        let rss_values: Vec<u64> = samples
+            .iter()
+            .filter_map(|sample| sample.rss_bytes)
+            .collect();
+        let fd_values: Vec<usize> = samples
+            .iter()
+            .filter_map(|sample| sample.file_descriptors)
+            .collect();
+        let thread_values: Vec<usize> =
+            samples.iter().filter_map(|sample| sample.threads).collect();
+        eprintln!(
+            "soak_resources samples={} rss_min_bytes={:?} rss_max_bytes={:?} fd_min={:?} fd_max={:?} threads_min={:?} threads_max={:?} active={} queued={} accepted={} rejected={} timeouts={} canceled={}",
+            samples.len(),
+            rss_values.iter().min(),
+            rss_values.iter().max(),
+            fd_values.iter().min(),
+            fd_values.iter().max(),
+            thread_values.iter().min(),
+            thread_values.iter().max(),
+            metrics.active,
+            metrics.queued,
+            metrics.accepted,
+            metrics.rejected,
+            metrics.timeouts,
+            metrics.canceled,
+        );
     }
 }
