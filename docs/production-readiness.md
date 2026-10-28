@@ -20,7 +20,7 @@
 | Dispatcher cancellation and resource metrics | Implemented and automatically tested | cooperative token, bounded stress, timeout and counter assertions |
 | Python-level cooperative cancellation | Implemented with explicit opt-in | `cancellation` handler parameter, timeout race test; no forced thread termination |
 | Linux resource instrumentation | Implemented where supported | `/proc` RSS/peak-RSS, fd, thread, active/queued samples in benchmark reports |
-| Bounded soak testing | Implemented and cloud-executed | `scripts/stress.sh` quick mode; configurable standard/extended durations |
+| Bounded soak testing | Implemented and cloud-executed | `scripts/stress.sh` quick and 300-second standard runs; configurable extended duration |
 | Repeatable benchmark comparison | Implemented | `scripts/bench.sh` warmup, JSON reports, metrics-enabled/disabled comparison |
 | Alpha version mapping and release checks | Implemented locally; not published | `version.json`, `scripts/version-check.py`, `scripts/release-check.sh` |
 | Alpha documentation and compatibility | Implemented | API contract, compatibility matrix, known limitations, release checklist |

@@ -34,6 +34,22 @@ cleanup. RSS can remain retained by the allocator after requests finish; a
 stable active/queued count is cleanup evidence, not proof that the allocator
 returned every page to the OS. Other platforms report unavailable OS fields.
 
+## Phase 8B standard soak evidence
+
+On the current cloud head (`c4e2c7d`), standard mode ran for 300.02 seconds
+with 4,096 burst requests and 16 workers. The instrumented test collected
+2,838 resource samples: RSS ranged from 2,420,736 to 5,672,960 bytes, file
+descriptors remained 4, and threads ranged from 3 to 26 while concurrent
+handlers were active. It accepted 56,550 requests, rejected 53,828,794
+overload attempts, and recorded 13,794 bounded timeouts. After shutdown,
+active and queued counts were both zero and the test passed.
+
+The high rejection count is expected from a deliberately saturated queue and
+does not indicate dropped accepted work. RSS increased during sustained
+activity but stayed bounded for this process; allocator retention and the
+thread-per-request design mean this is evidence against an obvious growth
+trend, not proof of memory-leak freedom. Extended soak remains optional.
+
 The stress test is a component test, not a Windows GUI test. It does not
 measure WebView2, native window responsiveness, or packaged process memory.
 Use `scripts/bench.ps1` and `scripts/package-smoke.ps1` on a real Windows host

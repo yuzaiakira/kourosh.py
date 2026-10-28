@@ -178,3 +178,9 @@ only. The stable fd count and returned active/queued counters are cleanup
 evidence. RSS retention is allocator behavior until a repeated process-level
 study shows otherwise. Windows WebView2 memory, UI responsiveness, and host
 startup remain unmeasured.
+
+The standard soak on the same current head ran for 300.02 seconds with 16
+workers and recorded RSS 2.42–5.67 MiB, four file descriptors throughout, and
+three to 26 threads. It completed with active and queued requests at zero;
+the queue-saturation rejection and timeout counts are reported in
+`docs/stress-testing.md`.

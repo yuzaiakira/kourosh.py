@@ -159,5 +159,5 @@ repeat process-level memory studies before changing scheduling primitives.
 - Alpha changelog, release notes, compatibility matrix, known limitations, and
   final Windows validation checklist are maintained in the source tree.
 
-Phase 8B remains pending the final Windows platform-validation milestone,
-standard soak evidence, and any owner-approved publication review.
+Phase 8B remains pending the final Windows platform-validation milestone and
+any owner-approved publication review.
