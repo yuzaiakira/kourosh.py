@@ -252,13 +252,13 @@ class App:
 
         if self._closed:
             return
+        self._closed = True
         for identifier, plugin in reversed(list(self._plugins.items())):
             try:
                 plugin.shutdown()
             except Exception:  # noqa: BLE001 - cleanup continues deterministically.
                 _LOGGER.error("Plugin shutdown failed for %s", identifier)
         self._plugins.clear()
-        self._closed = True
 
     def run(self, frontend: str | Path | None = None) -> int | None:
         """Launch the configured native host, or no-op while it imports this app."""
