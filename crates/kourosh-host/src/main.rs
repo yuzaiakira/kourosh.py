@@ -12,66 +12,72 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(windows)]
+struct HostOptions {
+    app: Option<std::path::PathBuf>,
+    frontend: Option<std::path::PathBuf>,
+    title: String,
+    width: u32,
+    height: u32,
+}
+
+#[cfg(windows)]
 fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
     use kourosh_bridge::{
         response_for_error, AsyncDispatcher, BridgeError, RpcResponse, TRUSTED_ORIGIN,
     };
     use kourosh_python::PythonRuntime;
-    use std::borrow::Cow;
+    use std::path::Path;
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
+    use tao::dpi::LogicalSize;
     use tao::event::{Event, WindowEvent};
     use tao::event_loop::{ControlFlow, EventLoopBuilder};
     use tao::window::WindowBuilder;
-    use wry::http::{header::CONTENT_TYPE, Response};
     use wry::{WebViewBuilder, WebViewBuilderExtWindows};
 
     enum UserEvent {
         Response(RpcResponse),
     }
 
+    let options = parse_host_options()?;
+    if options.app.is_some() {
+        std::env::set_var("KOUROSH_HOST_APP", "1");
+    }
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
     let window = WindowBuilder::new()
-        .with_title("Kourosh.py")
+        .with_title(&options.title)
+        .with_inner_size(LogicalSize::new(options.width, options.height))
         .build(&event_loop)?;
-    let runtime = Arc::new(PythonRuntime::new()?);
+    let runtime = Arc::new(match options.app.as_deref() {
+        Some(path) => PythonRuntime::new_with_app(path)?,
+        None => PythonRuntime::new()?,
+    });
+    let allowed_methods = runtime.methods().to_vec();
     let runtime_for_dispatch = Arc::clone(&runtime);
-    let dispatcher = Arc::new(AsyncDispatcher::new(32, move |request| {
-        runtime_for_dispatch.call(request)
-    }));
+    let dispatcher = Arc::new(AsyncDispatcher::new_with_methods(
+        32,
+        allowed_methods,
+        move |request| runtime_for_dispatch.call(request),
+    ));
     let dispatcher_for_ipc = Arc::clone(&dispatcher);
     let dispatcher_for_lifecycle = Arc::clone(&dispatcher);
     let runtime_for_lifecycle = Arc::clone(&runtime);
     let proxy_for_ipc = proxy.clone();
 
+    let static_root = match options.frontend.as_deref() {
+        Some(frontend) => frontend
+            .parent()
+            .ok_or("frontend path has no parent")?
+            .canonicalize()?,
+        None => Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/hello-vanilla")
+            .canonicalize()?,
+    };
     let webview = WebViewBuilder::new()
-        .with_custom_protocol("kourosh".to_owned(), |_webview_id, request| {
-            let (body, content_type): (&[u8], &str) = match request.uri().path() {
-                "/" | "/index.html" => (
-                    include_bytes!("../../../examples/hello-vanilla/index.html"),
-                    "text/html; charset=utf-8",
-                ),
-                "/bridge.js" => (
-                    include_bytes!("../../../examples/hello-vanilla/bridge.js"),
-                    "text/javascript; charset=utf-8",
-                ),
-                "/app.js" => (
-                    include_bytes!("../../../examples/hello-vanilla/app.js"),
-                    "text/javascript; charset=utf-8",
-                ),
-                "/style.css" => (
-                    include_bytes!("../../../examples/hello-vanilla/style.css"),
-                    "text/css; charset=utf-8",
-                ),
-                _ => (&[] as &[u8], "text/plain; charset=utf-8"),
-            };
-            Response::builder()
-                .header(CONTENT_TYPE, content_type)
-                .status(if body.is_empty() { 404 } else { 200 })
-                .body(Cow::Owned(body.to_vec()))
-                .expect("static protocol response is valid")
+        .with_custom_protocol("kourosh".to_owned(), move |_webview_id, request| {
+            custom_protocol_response(&static_root, request.uri().path())
         })
         .with_https_scheme(true)
         .with_url("https://kourosh.app/index.html")
@@ -138,4 +144,108 @@ fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
             _ => {}
         }
     });
+}
+
+#[cfg(windows)]
+fn custom_protocol_response(
+    root: &std::path::Path,
+    request_path: &str,
+) -> wry::http::Response<std::borrow::Cow<'static, [u8]>> {
+    use std::borrow::Cow;
+    use std::fs;
+    use wry::http::{header::CONTENT_TYPE, Response};
+    let relative = request_path.trim_start_matches('/');
+    let relative = if relative.is_empty() {
+        "index.html"
+    } else {
+        relative
+    };
+    let rejected = relative.contains("..")
+        || relative.contains('\\')
+        || relative.contains('\0')
+        || relative.contains('%')
+        || relative.starts_with('/');
+    let path = root.join(relative);
+    let valid_path = !rejected
+        && path
+            .canonicalize()
+            .map(|canonical| canonical.starts_with(root))
+            .unwrap_or(false);
+    let body = if valid_path {
+        fs::read(&path).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let content_type = match std::path::Path::new(relative)
+        .extension()
+        .and_then(|extension| extension.to_str())
+    {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("json") => "application/json; charset=utf-8",
+        _ => "application/octet-stream",
+    };
+    Response::builder()
+        .header(CONTENT_TYPE, content_type)
+        .status(if body.is_empty() { 404 } else { 200 })
+        .body(Cow::Owned(body))
+        .expect("static protocol response is valid")
+}
+
+#[cfg(windows)]
+fn parse_host_options() -> Result<HostOptions, Box<dyn std::error::Error>> {
+    use std::env;
+    use std::path::PathBuf;
+
+    let mut app = None;
+    let mut frontend = None;
+    let mut title = "Kourosh.py".to_owned();
+    let mut width = 960;
+    let mut height = 640;
+    let mut args = env::args_os().skip(1);
+    while let Some(argument) = args.next() {
+        let argument = argument.to_string_lossy();
+        match argument.as_ref() {
+            "--app" => {
+                app = Some(PathBuf::from(next_argument("--app", &mut args)?).canonicalize()?)
+            }
+            "--frontend" => {
+                frontend = Some(
+                    PathBuf::from(next_argument("--frontend", &mut args)?.as_str())
+                        .canonicalize()?,
+                )
+            }
+            "--title" => title = next_argument("--title", &mut args)?,
+            "--width" => width = next_argument("--width", &mut args)?.parse()?,
+            "--height" => height = next_argument("--height", &mut args)?.parse()?,
+            unknown => return Err(format!("unknown host argument: {unknown}").into()),
+        }
+    }
+    if title.is_empty() || width == 0 || height == 0 || width > 16_384 || height > 16_384 {
+        return Err("invalid window configuration".into());
+    }
+    if let (Some(app), Some(frontend)) = (&app, &frontend) {
+        let root = app.parent().ok_or("app path has no parent")?;
+        if !frontend.starts_with(root) {
+            return Err("frontend must be inside the application directory".into());
+        }
+    }
+    Ok(HostOptions {
+        app,
+        frontend,
+        title,
+        width,
+        height,
+    })
+}
+
+#[cfg(windows)]
+fn next_argument<I: Iterator<Item = std::ffi::OsString>>(
+    name: &str,
+    args: &mut I,
+) -> Result<String, Box<dyn std::error::Error>> {
+    args.next()
+        .map(|value| value.to_string_lossy().into_owned())
+        .ok_or_else(|| format!("missing value for {name}").into())
 }

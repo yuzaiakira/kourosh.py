@@ -8,8 +8,12 @@ const bridgeSource = fs.readFileSync(
   path.join(__dirname, "..", "examples", "hello-vanilla", "bridge.js"),
   "utf8",
 );
+const sdkSource = fs.readFileSync(
+  path.join(__dirname, "..", "packages", "sdk", "kourosh.js"),
+  "utf8",
+);
 
-function createBridge(postMessage) {
+function createBridge(postMessage, source = bridgeSource) {
   const window = { ipc: { postMessage } };
   const context = {
     window,
@@ -19,7 +23,7 @@ function createBridge(postMessage) {
     clearTimeout,
     Date,
   };
-  vm.runInNewContext(bridgeSource, context);
+  vm.runInNewContext(source, context);
   return window;
 }
 
@@ -66,4 +70,12 @@ test("cleans up pending calls on transport failure, close, and timeout", async (
     timeoutWindow.kourosh.invoke("greet", { name: "Ada" }, { timeoutMs: 1 }),
     (error) => error.code === "timeout",
   );
+});
+
+test("ships the same framework-independent SDK contract", async () => {
+  let rawRequest;
+  const window = createBridge((raw) => { rawRequest = JSON.parse(raw); }, sdkSource);
+  const promise = window.kourosh.invoke("greet", { name: "SDK" });
+  window.__kouroshReceive({ id: rawRequest.id, ok: true, result: { message: "Hello, SDK!" } });
+  assert.deepEqual(await promise, { message: "Hello, SDK!" });
 });

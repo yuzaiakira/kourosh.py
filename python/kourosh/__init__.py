@@ -1,8 +1,219 @@
-"""Python package namespace for the Kourosh.py developer SDK.
+"""Python-first application SDK for the Kourosh native runtime."""
 
-The public App/CLI surface is planned for Phase 2. Phase 1 embeds the
-application callback in the native proof-of-concept host.
-"""
+from __future__ import annotations
 
-__all__ = ["__version__"]
-__version__ = "0.1.0"
+import asyncio
+import inspect
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any, Callable, TypeVar, overload
+
+__version__ = "0.2.0"
+
+_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+_MAX_TITLE_BYTES = 256
+_MAX_DIMENSION = 16_384
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+class KouroshError(RuntimeError):
+    """An SDK error with a stable code suitable for a UI or CLI."""
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        self.message = message
+        super().__init__(message)
+
+
+class App:
+    """Describe a desktop app and register its Python RPC methods."""
+
+    def __init__(self, *, title: str, width: int = 960, height: int = 640) -> None:
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError("title must be a non-empty string")
+        if len(title.encode("utf-8")) > _MAX_TITLE_BYTES:
+            raise ValueError(f"title must be at most {_MAX_TITLE_BYTES} bytes")
+        if not isinstance(width, int) or isinstance(width, bool) or not 1 <= width <= _MAX_DIMENSION:
+            raise ValueError(f"width must be an integer from 1 to {_MAX_DIMENSION}")
+        if not isinstance(height, int) or isinstance(height, bool) or not 1 <= height <= _MAX_DIMENSION:
+            raise ValueError(f"height must be an integer from 1 to {_MAX_DIMENSION}")
+        self.title = title
+        self.width = width
+        self.height = height
+        self._methods: dict[str, Callable[..., Any]] = {}
+        self._closed = False
+        caller = inspect.currentframe()
+        self.source_path = (
+            Path(caller.f_back.f_globals["__file__"]).resolve()
+            if caller and caller.f_back and "__file__" in caller.f_back.f_globals
+            else None
+        )
+        del caller
+
+    @overload
+    def expose(self, function: _F) -> _F: ...
+
+    @overload
+    def expose(self, function: None = None, *, name: str | None = None) -> Callable[[_F], _F]: ...
+
+    def expose(self, function: _F | None = None, *, name: str | None = None):
+        """Register a callable under an explicit, default-deny RPC name."""
+
+        if function is None:
+            return lambda decorated: self._register(decorated, name=name)
+        return self._register(function, name=name)
+
+    def _register(self, function: _F, *, name: str | None = None) -> _F:
+        if self._closed:
+            raise KouroshError("app_closed", "cannot register methods after app shutdown")
+        if not callable(function):
+            raise TypeError("exposed object must be callable")
+        method_name = name or getattr(function, "__name__", "")
+        if not isinstance(method_name, str) or not _NAME_RE.fullmatch(method_name):
+            raise ValueError("method names must match [A-Za-z_][A-Za-z0-9_]{0,63}")
+        if method_name in self._methods:
+            raise ValueError(f"method already registered: {method_name}")
+        self._methods[method_name] = function
+        return function
+
+    def _method_names(self) -> list[str]:
+        return list(self._methods)
+
+    def _dispatch(self, method: str, args_json: str) -> Any:
+        """Called by the embedded runtime after native allowlist checks."""
+
+        if self._closed:
+            raise _RpcError("shutdown", "the application is shut down")
+        function = self._methods.get(method)
+        if function is None:
+            raise _RpcError("method_not_allowed", "the requested method is not allowlisted")
+        try:
+            args = json.loads(args_json)
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise _RpcError("invalid_args", "arguments must be valid JSON") from error
+        if not isinstance(args, dict):
+            raise _RpcError("invalid_args", "arguments must be a JSON object")
+        try:
+            result = function(**args)
+            if inspect.isawaitable(result):
+                result = asyncio.run(result)
+            json.dumps(result, ensure_ascii=False, allow_nan=False)
+            return result
+        except _RpcError:
+            raise
+        except TypeError as error:
+            raise _RpcError("invalid_args", "arguments did not match the exposed function") from error
+        except Exception as error:  # noqa: BLE001 - scrub details at the RPC boundary.
+            raise _RpcError("python_error", "the Python handler raised an exception") from error
+
+    def configuration(self) -> dict[str, Any]:
+        """Return JSON-compatible metadata used by the developer host."""
+
+        return {
+            "title": self.title,
+            "width": self.width,
+            "height": self.height,
+            "methods": self._method_names(),
+        }
+
+    def close(self) -> None:
+        """Prevent further registrations and release SDK-side state."""
+
+        self._closed = True
+
+    def run(self, frontend: str | Path | None = None) -> int | None:
+        """Launch the configured native host, or no-op while it imports this app."""
+
+        if os.environ.get("KOUROSH_HOST_APP") == "1":
+            return None
+        if sys.platform != "win32":
+            raise KouroshError(
+                "unsupported_platform",
+                "the WRY/WebView2 desktop host is currently supported on Windows only",
+            )
+        if self.source_path is None:
+            raise KouroshError("app_source_missing", "App.run() must be called from a Python module")
+        host = _find_host_binary()
+        if host is None:
+            raise KouroshError(
+                "host_unavailable",
+                "kourosh-host was not found; set KOUROSH_HOST_BIN or install the native host",
+            )
+        app_root = self.source_path.parent
+        frontend_path = Path(frontend) if frontend is not None else app_root / "ui" / "index.html"
+        frontend_path = (
+            (app_root / frontend_path).resolve() if not frontend_path.is_absolute() else frontend_path.resolve()
+        )
+        if not _is_within(frontend_path, app_root) or not frontend_path.is_file():
+            raise KouroshError("invalid_frontend", "frontend must be an existing file under the app directory")
+        environment = os.environ.copy()
+        environment["KOUROSH_HOST_APP"] = "1"
+        framework_python = Path(__file__).resolve().parent.parent
+        existing_pythonpath = environment.get("PYTHONPATH")
+        environment["PYTHONPATH"] = str(framework_python) + (
+            os.pathsep + existing_pythonpath if existing_pythonpath else ""
+        )
+        try:
+            completed = subprocess.run(
+                [
+                    str(host),
+                    "--app",
+                    str(self.source_path),
+                    "--frontend",
+                    str(frontend_path),
+                    "--title",
+                    self.title,
+                    "--width",
+                    str(self.width),
+                    "--height",
+                    str(self.height),
+                ],
+                cwd=app_root,
+                env=environment,
+                check=False,
+            )
+        finally:
+            self.close()
+        if completed.returncode != 0:
+            raise KouroshError("host_exit", f"native host exited with status {completed.returncode}")
+        return completed.returncode
+
+
+class _RpcError(Exception):
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        self.message = message
+        super().__init__(message)
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _find_host_binary() -> Path | None:
+    candidates = [os.environ.get("KOUROSH_HOST_BIN"), shutil.which("kourosh-host")]
+    repository_root = Path(__file__).resolve().parents[2]
+    candidates.extend(
+        [
+            str(repository_root / "target" / "release" / "kourosh-host.exe"),
+            str(repository_root / "target" / "debug" / "kourosh-host.exe"),
+        ]
+    )
+    for candidate in candidates:
+        if candidate:
+            path = Path(candidate)
+            if path.is_file():
+                return path.resolve()
+    return None
+
+
+__all__ = ["App", "KouroshError", "__version__"]

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -22,6 +22,7 @@ pub const DEFAULT_QUEUE_CAPACITY: usize = 32;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Method {
     Greet,
+    Custom(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +30,7 @@ pub struct ValidatedRequest {
     pub id: String,
     pub method: Method,
     pub name: String,
+    pub args: Map<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -84,8 +86,19 @@ impl RpcResponse {
     }
 }
 
-/// Validate a raw message before it is accepted by the bridge queue.
+/// Validate a raw message against the built-in `greet` allowlist.
 pub fn parse_request(raw: &str, origin: &str) -> Result<ValidatedRequest, BridgeError> {
+    static GREET: OnceLock<Vec<String>> = OnceLock::new();
+    parse_request_with_methods(raw, origin, GREET.get_or_init(|| vec!["greet".to_owned()]))
+}
+
+/// Validate a raw message against an explicit method allowlist. The host owns
+/// this list and obtains it from the Python SDK's `@app.expose` registry.
+pub fn parse_request_with_methods(
+    raw: &str,
+    origin: &str,
+    allowed_methods: &[String],
+) -> Result<ValidatedRequest, BridgeError> {
     if origin != TRUSTED_ORIGIN {
         return Err(BridgeError::invalid_origin());
     }
@@ -117,8 +130,9 @@ pub fn parse_request(raw: &str, origin: &str) -> Result<ValidatedRequest, Bridge
     let method = object
         .get("method")
         .and_then(Value::as_str)
-        .ok_or_else(|| BridgeError::new("invalid_method", "method must be a string"))?;
-    if method != "greet" {
+        .filter(|method| !method.is_empty() && method.len() <= MAX_NAME_BYTES)
+        .ok_or_else(|| BridgeError::new("invalid_method", "method must be a non-empty string"))?;
+    if !allowed_methods.iter().any(|allowed| allowed == method) {
         return Err(BridgeError::new(
             "method_not_allowed",
             "the requested method is not allowlisted",
@@ -129,28 +143,36 @@ pub fn parse_request(raw: &str, origin: &str) -> Result<ValidatedRequest, Bridge
         .get("args")
         .and_then(Value::as_object)
         .ok_or_else(|| BridgeError::new("invalid_args", "args must be a JSON object"))?;
-    if args.len() != 1 || !args.contains_key("name") {
-        return Err(BridgeError::new(
-            "invalid_args",
-            "greet accepts exactly one argument: name",
-        ));
-    }
-    let name = args
-        .get("name")
-        .and_then(Value::as_str)
-        .filter(|name| !name.is_empty() && name.len() <= MAX_NAME_BYTES)
-        .ok_or_else(|| {
-            BridgeError::new(
+    let name = if method == "greet" {
+        if args.len() != 1 || !args.contains_key("name") {
+            return Err(BridgeError::new(
                 "invalid_args",
-                format!("name must be a non-empty string of at most {MAX_NAME_BYTES} bytes"),
-            )
-        })?
-        .to_owned();
+                "greet accepts exactly one argument: name",
+            ));
+        }
+        args.get("name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty() && name.len() <= MAX_NAME_BYTES)
+            .ok_or_else(|| {
+                BridgeError::new(
+                    "invalid_args",
+                    format!("name must be a non-empty string of at most {MAX_NAME_BYTES} bytes"),
+                )
+            })?
+            .to_owned()
+    } else {
+        String::new()
+    };
 
     Ok(ValidatedRequest {
         id,
-        method: Method::Greet,
+        method: if method == "greet" {
+            Method::Greet
+        } else {
+            Method::Custom(method.to_owned())
+        },
         name,
+        args: args.clone(),
     })
 }
 
@@ -181,6 +203,7 @@ pub struct AsyncDispatcher {
     sender: SyncSender<Job>,
     active: Arc<AtomicUsize>,
     closed: Arc<AtomicBool>,
+    allowed_methods: Arc<Vec<String>>,
     max_inflight: usize,
 }
 
@@ -189,7 +212,19 @@ impl AsyncDispatcher {
     where
         F: Fn(ValidatedRequest) -> Result<Value, BridgeError> + Send + Sync + 'static,
     {
+        Self::new_with_methods(queue_capacity, vec!["greet".to_owned()], handler)
+    }
+
+    pub fn new_with_methods<F>(
+        queue_capacity: usize,
+        allowed_methods: Vec<String>,
+        handler: F,
+    ) -> Self
+    where
+        F: Fn(ValidatedRequest) -> Result<Value, BridgeError> + Send + Sync + 'static,
+    {
         let queue_capacity = queue_capacity.max(1);
+        let allowed_methods = Arc::new(allowed_methods);
         let (sender, receiver) = mpsc::sync_channel(queue_capacity);
         let active = Arc::new(AtomicUsize::new(0));
         let closed = Arc::new(AtomicBool::new(false));
@@ -206,6 +241,7 @@ impl AsyncDispatcher {
             sender,
             active,
             closed,
+            allowed_methods,
             max_inflight: queue_capacity,
         }
     }
@@ -219,7 +255,19 @@ impl AsyncDispatcher {
         if self.closed.load(Ordering::Acquire) {
             return Err(BridgeError::new("shutdown", "the bridge is shut down"));
         }
-        let request = parse_request(raw, origin)?;
+        self.submit_with_timeout(raw, origin, timeout)
+    }
+
+    fn submit_with_timeout(
+        &self,
+        raw: &str,
+        origin: &str,
+        timeout: Duration,
+    ) -> Result<Receiver<RpcResponse>, BridgeError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(BridgeError::new("shutdown", "the bridge is shut down"));
+        }
+        let request = parse_request_with_methods(raw, origin, &self.allowed_methods)?;
         if !self.reserve_inflight_slot() {
             return Err(BridgeError::new(
                 "busy",
@@ -288,6 +336,10 @@ impl AsyncDispatcher {
             }),
             Err(error) => RpcResponse::failure(id, error),
         }
+    }
+
+    pub fn allowed_methods(&self) -> &[String] {
+        self.allowed_methods.as_slice()
     }
 }
 
@@ -405,6 +457,7 @@ mod tests {
         assert_eq!(parsed.id, "r1");
         assert_eq!(parsed.method, Method::Greet);
         assert_eq!(parsed.name, "Akira");
+        assert_eq!(parsed.args["name"], "Akira");
     }
 
     #[test]
@@ -556,5 +609,27 @@ mod tests {
         dispatcher.shutdown();
         assert_eq!(first.recv().unwrap().error.unwrap().code, "shutdown");
         assert_eq!(second.recv().unwrap().error.unwrap().code, "shutdown");
+    }
+
+    #[test]
+    fn accepts_only_explicit_custom_methods() {
+        let allowed = vec!["add".to_owned()];
+        let raw = serde_json::json!({
+            "id": "custom-1",
+            "method": "add",
+            "args": {"left": 2, "right": 3}
+        })
+        .to_string();
+        let parsed = parse_request_with_methods(&raw, TRUSTED_ORIGIN, &allowed).unwrap();
+        assert_eq!(parsed.method, Method::Custom("add".to_owned()));
+        assert_eq!(parsed.args["left"], 2);
+
+        let denied = serde_json::json!({"id":"custom-2","method":"shell","args":{}}).to_string();
+        assert_eq!(
+            parse_request_with_methods(&denied, TRUSTED_ORIGIN, &allowed)
+                .unwrap_err()
+                .code,
+            "method_not_allowed"
+        );
     }
 }

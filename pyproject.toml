@@ -4,9 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kourosh"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python-first desktop application framework"
 requires-python = ">=3.12"
+
+[project.scripts]
+kourosh = "kourosh.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
