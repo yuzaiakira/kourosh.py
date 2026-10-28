@@ -38,9 +38,80 @@ impl CancellationToken {
         self.canceled.load(Ordering::Acquire)
     }
 
+    /// British-spelling alias for applications that use `cancelled` in their
+    /// Python/Rust naming conventions.
+    pub fn is_cancelled(&self) -> bool {
+        self.is_canceled()
+    }
+
     fn cancel(&self) {
         self.canceled.store(true, Ordering::Release);
     }
+}
+
+/// Select whether dispatcher counters are updated on the request hot path.
+/// Capacity and shutdown tracking remain enabled in either mode; disabling
+/// only omits diagnostic counter atomics so benchmark comparisons can isolate
+/// their cost without changing scheduling or validation behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetricsMode {
+    Enabled,
+    Disabled,
+}
+
+/// Linux process-resource sample used by local benchmarks and soak tests.
+/// Unsupported platforms return `None` for OS-specific values.
+#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq)]
+pub struct ResourceSnapshot {
+    pub rss_bytes: Option<u64>,
+    pub peak_rss_bytes: Option<u64>,
+    pub file_descriptors: Option<usize>,
+    pub threads: Option<usize>,
+    pub active_requests: usize,
+    pub queued_requests: usize,
+    pub python_workers: usize,
+}
+
+impl ResourceSnapshot {
+    pub fn capture(active_requests: usize, queued_requests: usize, python_workers: usize) -> Self {
+        #[cfg(target_os = "linux")]
+        {
+            Self {
+                rss_bytes: read_proc_status_kib("VmRSS:").map(|value| value * 1024),
+                peak_rss_bytes: read_proc_status_kib("VmHWM:").map(|value| value * 1024),
+                file_descriptors: std::fs::read_dir("/proc/self/fd")
+                    .ok()
+                    .map(|entries| entries.filter_map(Result::ok).count()),
+                threads: std::fs::read_dir("/proc/self/task")
+                    .ok()
+                    .map(|entries| entries.filter_map(Result::ok).count()),
+                active_requests,
+                queued_requests,
+                python_workers,
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Self {
+                rss_bytes: None,
+                peak_rss_bytes: None,
+                file_descriptors: None,
+                threads: None,
+                active_requests,
+                queued_requests,
+                python_workers,
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn read_proc_status_kib(label: &str) -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    status.lines().find_map(|line| {
+        let value = line.strip_prefix(label)?.trim().strip_suffix(" kB")?;
+        value.parse::<u64>().ok()
+    })
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -55,6 +126,7 @@ pub struct DispatcherMetrics {
 }
 
 struct MetricsCounters {
+    enabled: bool,
     active: AtomicUsize,
     queued: AtomicUsize,
     accepted: AtomicUsize,
@@ -65,7 +137,22 @@ struct MetricsCounters {
 }
 
 impl MetricsCounters {
+    fn add(&self, counter: &AtomicUsize, value: usize) {
+        if self.enabled {
+            counter.fetch_add(value, Ordering::AcqRel);
+        }
+    }
+
+    fn subtract(&self, counter: &AtomicUsize, value: usize) {
+        if self.enabled {
+            counter.fetch_sub(value, Ordering::AcqRel);
+        }
+    }
+
     fn snapshot(&self) -> DispatcherMetrics {
+        if !self.enabled {
+            return DispatcherMetrics::default();
+        }
         DispatcherMetrics {
             active: self.active.load(Ordering::Acquire),
             queued: self.queued.load(Ordering::Acquire),
@@ -291,6 +378,7 @@ struct Job {
 pub struct AsyncDispatcher {
     sender: SyncSender<Job>,
     active: Arc<AtomicUsize>,
+    queued: Arc<AtomicUsize>,
     metrics: Arc<MetricsCounters>,
     closed: Arc<AtomicBool>,
     allowed_methods: Arc<Vec<String>>,
@@ -331,7 +419,36 @@ impl AsyncDispatcher {
             + Sync
             + 'static,
     {
-        Self::new_with_methods_cancellable_internal(queue_capacity, allowed_methods, false, handler)
+        Self::new_with_methods_cancellable_with_metrics(
+            queue_capacity,
+            allowed_methods,
+            MetricsMode::Enabled,
+            handler,
+        )
+    }
+
+    /// Construct a dispatcher with the same bounded scheduling semantics but
+    /// without diagnostic counter atomics. This is intended for controlled
+    /// benchmark comparisons, not for production observability.
+    pub fn new_with_methods_cancellable_with_metrics<F>(
+        queue_capacity: usize,
+        allowed_methods: Vec<String>,
+        metrics_mode: MetricsMode,
+        handler: F,
+    ) -> Self
+    where
+        F: Fn(ValidatedRequest, CancellationToken) -> Result<Value, BridgeError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self::new_with_methods_cancellable_internal(
+            queue_capacity,
+            allowed_methods,
+            false,
+            metrics_mode,
+            handler,
+        )
     }
 
     fn new_with_methods_internal<F>(
@@ -347,6 +464,7 @@ impl AsyncDispatcher {
             queue_capacity,
             allowed_methods,
             builtin_greet,
+            MetricsMode::Enabled,
             move |request, _cancellation| handler(request),
         )
     }
@@ -355,6 +473,7 @@ impl AsyncDispatcher {
         queue_capacity: usize,
         allowed_methods: Vec<String>,
         builtin_greet: bool,
+        metrics_mode: MetricsMode,
         handler: F,
     ) -> Self
     where
@@ -367,7 +486,9 @@ impl AsyncDispatcher {
         let allowed_methods = Arc::new(allowed_methods);
         let (sender, receiver) = mpsc::sync_channel(queue_capacity);
         let active = Arc::new(AtomicUsize::new(0));
+        let queued = Arc::new(AtomicUsize::new(0));
         let metrics = Arc::new(MetricsCounters {
+            enabled: metrics_mode == MetricsMode::Enabled,
             active: AtomicUsize::new(0),
             queued: AtomicUsize::new(0),
             accepted: AtomicUsize::new(0),
@@ -379,6 +500,7 @@ impl AsyncDispatcher {
         let closed = Arc::new(AtomicBool::new(false));
         let worker_handler: Arc<CancellableHandler> = Arc::new(handler);
         let worker_active = Arc::clone(&active);
+        let worker_queued = Arc::clone(&queued);
         let worker_metrics = Arc::clone(&metrics);
         let worker_closed = Arc::clone(&closed);
 
@@ -389,6 +511,7 @@ impl AsyncDispatcher {
                     receiver,
                     worker_handler,
                     worker_active,
+                    worker_queued,
                     worker_metrics,
                     worker_closed,
                 )
@@ -398,6 +521,7 @@ impl AsyncDispatcher {
         Self {
             sender,
             active,
+            queued,
             metrics,
             closed,
             allowed_methods,
@@ -413,12 +537,12 @@ impl AsyncDispatcher {
         timeout: Duration,
     ) -> Result<Receiver<RpcResponse>, BridgeError> {
         if self.closed.load(Ordering::Acquire) {
-            self.metrics.rejected.fetch_add(1, Ordering::AcqRel);
+            self.metrics.add(&self.metrics.rejected, 1);
             return Err(BridgeError::new("shutdown", "the bridge is shut down"));
         }
         let result = self.submit_with_timeout(raw, origin, timeout);
         if result.is_err() {
-            self.metrics.rejected.fetch_add(1, Ordering::AcqRel);
+            self.metrics.add(&self.metrics.rejected, 1);
         }
         result
     }
@@ -453,20 +577,25 @@ impl AsyncDispatcher {
             cancellation: CancellationToken::new(),
             response: response_tx,
         };
+        self.queued.fetch_add(1, Ordering::AcqRel);
+        self.metrics.add(&self.metrics.queued, 1);
         match self.sender.try_send(job) {
             Ok(()) => {
-                self.metrics.accepted.fetch_add(1, Ordering::AcqRel);
-                self.metrics.queued.fetch_add(1, Ordering::AcqRel);
+                self.metrics.add(&self.metrics.accepted, 1);
                 Ok(response_rx)
             }
             Err(TrySendError::Full(_)) => {
                 self.active.fetch_sub(1, Ordering::AcqRel);
-                self.metrics.active.fetch_sub(1, Ordering::AcqRel);
+                self.metrics.subtract(&self.metrics.active, 1);
+                self.queued.fetch_sub(1, Ordering::AcqRel);
+                self.metrics.subtract(&self.metrics.queued, 1);
                 Err(BridgeError::new("busy", "the bridge request queue is full"))
             }
             Err(TrySendError::Disconnected(_)) => {
                 self.active.fetch_sub(1, Ordering::AcqRel);
-                self.metrics.active.fetch_sub(1, Ordering::AcqRel);
+                self.metrics.subtract(&self.metrics.active, 1);
+                self.queued.fetch_sub(1, Ordering::AcqRel);
+                self.metrics.subtract(&self.metrics.queued, 1);
                 Err(BridgeError::new(
                     "shutdown",
                     format!("request {id} was not accepted"),
@@ -488,7 +617,7 @@ impl AsyncDispatcher {
                 Ordering::Acquire,
             ) {
                 Ok(_) => {
-                    self.metrics.active.fetch_add(1, Ordering::AcqRel);
+                    self.metrics.add(&self.metrics.active, 1);
                     return true;
                 }
                 Err(updated) => current = updated,
@@ -525,6 +654,14 @@ impl AsyncDispatcher {
     pub fn metrics(&self) -> DispatcherMetrics {
         self.metrics.snapshot()
     }
+
+    pub fn resource_snapshot(&self, python_workers: usize) -> ResourceSnapshot {
+        ResourceSnapshot::capture(
+            self.active.load(Ordering::Acquire),
+            self.queued.load(Ordering::Acquire),
+            python_workers,
+        )
+    }
 }
 
 impl Drop for AsyncDispatcher {
@@ -537,6 +674,7 @@ fn worker_loop(
     receiver: Receiver<Job>,
     handler: Arc<CancellableHandler>,
     active: Arc<AtomicUsize>,
+    queued: Arc<AtomicUsize>,
     metrics: Arc<MetricsCounters>,
     closed: Arc<AtomicBool>,
 ) {
@@ -544,17 +682,18 @@ fn worker_loop(
         let job = match receiver.recv_timeout(Duration::from_millis(50)) {
             Ok(job) => job,
             Err(mpsc::RecvTimeoutError::Timeout) if closed.load(Ordering::Acquire) => {
-                reject_queued(&receiver, &active, &metrics);
+                reject_queued(&receiver, &active, queued.as_ref(), &metrics);
                 break;
             }
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         };
-        metrics.queued.fetch_sub(1, Ordering::AcqRel);
+        metrics.subtract(&metrics.queued, 1);
+        queued.fetch_sub(1, Ordering::AcqRel);
         if closed.load(Ordering::Acquire) {
             active.fetch_sub(1, Ordering::AcqRel);
-            metrics.active.fetch_sub(1, Ordering::AcqRel);
-            metrics.canceled.fetch_add(1, Ordering::AcqRel);
+            metrics.subtract(&metrics.active, 1);
+            metrics.add(&metrics.canceled, 1);
             let _ = job.response.send(RpcResponse::failure(
                 Some(job.request.id),
                 BridgeError::new("shutdown", "the bridge is shut down"),
@@ -572,7 +711,7 @@ fn worker_loop(
             let result = handler(request, cancellation);
             let _ = result_tx.send(result);
             active_for_job.fetch_sub(1, Ordering::AcqRel);
-            metrics_for_job.active.fetch_sub(1, Ordering::AcqRel);
+            metrics_for_job.subtract(&metrics_for_job.active, 1);
         });
 
         let response = wait_for_result(
@@ -587,27 +726,33 @@ fn worker_loop(
             .as_ref()
             .is_some_and(|error| error.code == "timeout")
         {
-            metrics.timeouts.fetch_add(1, Ordering::AcqRel);
+            metrics.add(&metrics.timeouts, 1);
         }
         if response
             .error
             .as_ref()
             .is_some_and(|error| error.code == "shutdown")
         {
-            metrics.canceled.fetch_add(1, Ordering::AcqRel);
+            metrics.add(&metrics.canceled, 1);
         }
-        metrics.completed.fetch_add(1, Ordering::AcqRel);
+        metrics.add(&metrics.completed, 1);
         let _ = job.response.send(response);
     }
 }
 
-fn reject_queued(receiver: &Receiver<Job>, active: &AtomicUsize, metrics: &MetricsCounters) {
+fn reject_queued(
+    receiver: &Receiver<Job>,
+    active: &AtomicUsize,
+    queued: &AtomicUsize,
+    metrics: &MetricsCounters,
+) {
     while let Ok(job) = receiver.try_recv() {
         active.fetch_sub(1, Ordering::AcqRel);
-        metrics.active.fetch_sub(1, Ordering::AcqRel);
-        metrics.queued.fetch_sub(1, Ordering::AcqRel);
-        metrics.canceled.fetch_add(1, Ordering::AcqRel);
-        metrics.completed.fetch_add(1, Ordering::AcqRel);
+        metrics.subtract(&metrics.active, 1);
+        metrics.subtract(&metrics.queued, 1);
+        queued.fetch_sub(1, Ordering::AcqRel);
+        metrics.add(&metrics.canceled, 1);
+        metrics.add(&metrics.completed, 1);
         let _ = job.response.send(RpcResponse::failure(
             Some(job.request.id),
             BridgeError::new("shutdown", "the bridge is shut down"),
@@ -958,5 +1103,40 @@ mod tests {
         assert_eq!(metrics.completed, samples);
         assert_eq!(metrics.active, 0);
         assert_eq!(metrics.queued, 0);
+    }
+
+    #[test]
+    fn disabled_metrics_preserve_dispatch_and_resource_counts() {
+        let dispatcher = AsyncDispatcher::new_with_methods_cancellable_with_metrics(
+            2,
+            vec!["greet".to_owned()],
+            MetricsMode::Disabled,
+            |request, _cancellation| Ok(greet_result(&request.name)),
+        );
+        let response = dispatcher.dispatch_raw(
+            &request("unmetered", "Ada"),
+            TRUSTED_ORIGIN,
+            Duration::from_secs(1),
+        );
+        assert!(response.ok);
+        assert_eq!(dispatcher.metrics(), DispatcherMetrics::default());
+        let resources = dispatcher.resource_snapshot(0);
+        assert_eq!(resources.active_requests, 0);
+        assert_eq!(resources.queued_requests, 0);
+    }
+
+    #[test]
+    fn resource_snapshot_reads_linux_process_values_when_available() {
+        let resources = ResourceSnapshot::capture(3, 2, 1);
+        assert_eq!(resources.active_requests, 3);
+        assert_eq!(resources.queued_requests, 2);
+        assert_eq!(resources.python_workers, 1);
+        #[cfg(target_os = "linux")]
+        {
+            assert!(resources.rss_bytes.is_some());
+            assert!(resources.peak_rss_bytes.is_some());
+            assert!(resources.file_descriptors.is_some());
+            assert!(resources.threads.is_some());
+        }
     }
 }
