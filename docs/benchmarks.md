@@ -123,3 +123,20 @@ Run the tools from the repository root and record their output with the commit
 SHA, OS/kernel, CPU, Python, Node, Rust profile, sample count, and concurrency.
 Compare only runs made with the same methodology; a changed machine or build
 profile is a new baseline rather than evidence of a regression.
+
+## Phase 7 dispatcher reliability measurement
+
+With the same cloud machine and `KOUROSH_BENCH_SAMPLES=100` /
+`KOUROSH_BENCH_CONCURRENCY=8`, the updated release benchmark recorded one
+run of 11.066 ms embedded-Python startup, 88/356/825 µs RPC p50/p95/p99, and
+5,826.574 requests/s. The adapter reported protocol 1 and the dispatcher
+reported 200 accepted, 0 rejected, 0 timed-out, 0 active, and 0 queued
+requests after the workload. A three-run spot check on the same machine varied
+from 10.438–28.419 ms startup and 6,218–11,564 requests/s, so the sample is
+evidence of behavior and cleanup, not a confirmed performance regression or
+optimization.
+
+`scripts/stress.sh` ran 512 requests with 16 workers successfully; the Rust
+test asserted that active and queued work returned to zero. The stress test is
+finite and component-scoped. It does not measure Windows WebView2 memory,
+window responsiveness, or arbitrary Python thread termination.

@@ -15,6 +15,9 @@
 | JavaScript/TypeScript protocol v1 | Implemented and automatically tested | Rust validator, SDK, concurrent and malformed-response tests |
 | Structured diagnostics and troubleshooting | Implemented and documented | `configure_logging`, doctor schema, troubleshooting guide |
 | Linux performance regression baseline | Measured | `scripts/bench.sh`, `scripts/bench-cli.sh`, frontend and SDK benchmarks |
+| Runtime adapter contract | Implemented and automatically tested | `RuntimeAdapter`, Python capability discovery, host trait usage |
+| Trusted Python plugin lifecycle | Implemented and automatically tested | metadata, duplicate, rollback, and cleanup tests |
+| Dispatcher cancellation and resource metrics | Implemented and automatically tested | cooperative token, bounded stress, timeout and counter assertions |
 | Code signing and public release | Planned | No signing keys or service are embedded |
 
 Phase 4B remains pending until the Windows rows are executed and recorded.

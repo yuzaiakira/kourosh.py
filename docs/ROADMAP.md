@@ -100,5 +100,26 @@ and measured production startup/memory/RPC evidence.
 
 Remaining Phase 6 work is regression measurement on the current cloud machine,
 broader generated-app integration coverage, and final API documentation review.
+
+## Phase 7 — runtime reliability and extensibility foundation (cloud implementation in progress; Windows deferred)
+
+- `RuntimeAdapter` defines initialization capabilities, explicit method
+  discovery, validated dispatch, and graceful shutdown. The existing embedded
+  Python runtime is the only implementation and is used by the Windows host
+  through the trait object.
+- The bounded dispatcher exposes active/queued/accepted/rejected/completed,
+  timeout, and cooperative-cancellation counters. Cancellable Rust handlers can
+  observe a token on timeout or shutdown without unsafe thread termination.
+- Trusted, application-bundled Python plugins have explicit metadata,
+  protocol/capability validation, duplicate detection, initialization rollback,
+  and reverse-order cleanup. No arbitrary plugin discovery or native loading is
+  added.
+- Finite Linux stress tests cover concurrent requests, timeout cancellation,
+  overload bounds, and resource counter cleanup.
+
+Phase 7 still requires broader soak measurements and review of any future
+Python-level cancellation API. Windows WebView2, packaged runtime, installer,
+and clean-machine behavior remain unverified and must wait for the final
+platform-validation milestone.
 Real Windows GUI behavior is intentionally deferred to the platform-validation
 phase; it must not be marked verified from Linux.

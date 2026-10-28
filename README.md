@@ -54,6 +54,10 @@ CRUD tests run locally; its native Windows validation uses
 `scripts/package-smoke.ps1`.
 
 For a reproducible cloud setup, see [docs/cloud-onboarding.md](docs/cloud-onboarding.md).
+For runtime adapter and trusted plugin contracts, see
+[docs/architecture/runtime-adapters.md](docs/architecture/runtime-adapters.md)
+and [docs/architecture/plugins.md](docs/architecture/plugins.md). Run the
+bounded reliability workload with [docs/stress-testing.md](docs/stress-testing.md).
 
 See [docs/javascript-sdk.md](docs/javascript-sdk.md),
 [docs/react-quickstart.md](docs/react-quickstart.md), and

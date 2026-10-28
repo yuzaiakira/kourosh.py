@@ -39,3 +39,8 @@ JavaScript, but its Python work may finish cooperatively in the worker thread.
 diagnostics are quiet by default. Set `KOUROSH_LOG_LEVEL=DEBUG` (or call
 `configure_logging("INFO")`) during development to receive method-level
 failure summaries without argument values or exception traces.
+
+Trusted application-bundled extensions can use `app.register_plugin(plugin)`;
+see the [plugin contract](architecture/plugins.md) for metadata, compatibility,
+rollback, and cleanup behavior. Plugins are in-process Python code and are not
+isolated from the application.
