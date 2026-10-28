@@ -12,6 +12,7 @@ from kourosh import App, KouroshError, __version__
 from kourosh.cli import (
     _stage_portable_distribution,
     _prepare_output_base,
+    _inno_script,
     _write_build_manifest,
     _write_checksums,
     _zip_directory,
@@ -88,6 +89,9 @@ class PackageTests(unittest.TestCase):
                 encoding="utf-8",
             )
             config = load_config(root)
+            installer_script = _inno_script(config, Path(temporary) / "payload", Path(temporary) / "setup.exe")
+            self.assertIn("AppId=com.example.package_app", installer_script)
+            self.assertIn("AppVersion=1.2.3", installer_script)
             host = Path(temporary) / "kourosh-host.exe"
             pe = bytearray(0x100)
             pe[:2] = b"MZ"

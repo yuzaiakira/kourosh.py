@@ -487,22 +487,28 @@ def _sha256(path: Path) -> str:
 
 
 def _inno_script(config: ProjectConfig, payload: Path, installer: Path) -> str:
+    display_name = _inno_escape(config.name)
+    install_name = _safe_filename(config.name)
     return f'''[Setup]
 AppId={config.identifier}
-AppName={config.name}
+AppName={display_name}
 AppVersion={config.version}
-DefaultDirName={{autopf}}\\{config.name}
+DefaultDirName={{autopf}}\\{install_name}
 OutputDir={installer.parent}
 OutputBaseFilename={installer.stem}
 PrivilegesRequired=lowest
-UninstallDisplayName={config.name}
+UninstallDisplayName={display_name}
 
 [Files]
 Source: "{payload}\\*"; DestDir: "{{app}}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{{autoprograms}}\\{config.name}"; Filename: "{{app}}\\{config.name}.exe"
+Name: "{{autoprograms}}\\{display_name}"; Filename: "{{app}}\\{install_name}.exe"
 '''
+
+
+def _inno_escape(value: str) -> str:
+    return value.replace('"', '""')
 
 
 def doctor() -> int:
