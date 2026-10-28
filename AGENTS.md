@@ -63,3 +63,25 @@ Report concisely:
 - OS-specific tests not performed and why
 - Commit SHA, Author/Committer verification, branch, push status, and remote reference if verified
 - Security/performance caveats and next recommended phase
+
+## Platform Validation Policy
+
+Development is cloud-first.
+
+Windows GUI and packaged-application runtime
+validation are deferred until the final
+platform-validation milestone.
+
+Continue all feasible implementation, testing,
+cross-compilation, security review, and documentation
+in Codex Cloud.
+
+Never fabricate Windows execution results.
+
+Do not mark Windows validation or production
+readiness as complete without real execution.
+
+Do not introduce GitHub Actions.
+
+Commit as Akira Yuzai <yuzai.akira@gmail.com>.
+Push and verify every commit immediately.
