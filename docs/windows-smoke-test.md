@@ -27,3 +27,9 @@ the package and run `kourosh dev` from the generated project directory. The
 same visible assertions should show the generated title and the project's
 `@app.expose` greeting. Record the project path and commit SHA with the host
 version; do not count a Linux `kourosh dev` validation message as GUI evidence.
+
+For Phase 3, run `npm install` in a generated React project, then use
+`kourosh dev` and confirm Fast Refresh or a CSS edit updates the window while a
+new greeting call still reaches Python. Run `kourosh frontend build` and
+`kourosh run` afterward to verify the static production path without a Vite
+process. Record the Vite, Node.js, WebView2, Rust, and commit versions.

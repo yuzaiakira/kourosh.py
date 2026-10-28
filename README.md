@@ -33,3 +33,20 @@ Create a project with `kourosh create myapp`, validate prerequisites with
 [docs/ROADMAP.md](docs/ROADMAP.md), the architecture notes under
 `docs/architecture/`, [docs/benchmarks.md](docs/benchmarks.md), and
 [CONTRIBUTING.md](CONTRIBUTING.md) for scope and security constraints.
+
+React and TypeScript projects are available through the local Vite templates:
+
+```sh
+kourosh create react-demo --ui react --typescript
+cd react-demo
+npm install
+kourosh dev
+```
+
+Use `kourosh frontend build` followed by `kourosh run` for static production
+frontend execution; Node.js is not part of that runtime path.
+
+See [docs/javascript-sdk.md](docs/javascript-sdk.md),
+[docs/react-quickstart.md](docs/react-quickstart.md), and
+[docs/vite-development.md](docs/vite-development.md) for the Phase 3 frontend
+workflow.

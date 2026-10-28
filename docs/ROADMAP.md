@@ -32,5 +32,18 @@
   malformed/unknown calls, and unsupported-platform reporting.
 
 The real Windows WebView2 smoke test remains the release gate. Packaging,
-signing, React/Vite templates, and broad native capabilities remain future
-work.
+signing, and broad native capabilities remain future work.
+
+## Phase 3 — React, TypeScript, Vite, and developer experience (implemented, Windows GUI pending)
+
+- React and React+TypeScript generators with local `@kourosh/sdk` files,
+  Vite configuration, Python entrypoints, and real RPC examples.
+- Typed Promise SDK with structured errors, reload cleanup, and no Node runtime
+  dependency in production.
+- Loopback-only Vite development server management, exact Rust trusted-origin
+  validation, and child-process cleanup.
+- `kourosh frontend build` and `kourosh run` for static production assets.
+- Frontend build, readiness, and SDK wrapper benchmark tooling.
+
+Vue/Svelte templates, Windows GUI/HMR validation, signing, and final desktop
+packaging remain outside this phase.

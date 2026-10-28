@@ -8,6 +8,12 @@ origin. Developer resource paths are canonicalized under the configured
 frontend directory and traversal-like request paths return 404. The bridge IPC
 handler repeats the origin check using the request URI before dispatching work.
 
+Vite development uses an explicit `http://127.0.0.1:<port>` navigation URL.
+The CLI binds Vite to loopback, waits for readiness, and passes the exact
+origin to the host. Rust validates the scheme, loopback address, and port, so
+the development exception does not broaden production's trusted custom-origin
+policy.
+
 This Linux environment cannot instantiate WebView2. The Windows compile and
 manual smoke test are therefore explicitly unverified until run on a Windows
 10/11 x64 host with the WebView2 runtime installed. The reproducible procedure

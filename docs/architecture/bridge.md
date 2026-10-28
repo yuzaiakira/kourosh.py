@@ -26,3 +26,7 @@ map and resolves or rejects a Promise from the structured response. It rejects
 all pending calls when the host begins window shutdown and converts a thrown
 IPC transport error into a structured rejection. It exposes no shell,
 filesystem, import, or arbitrary-evaluation method.
+
+The same cleanup runs on renderer `beforeunload`, which covers Vite reloads and
+prevents stale promises from a previous document. The Rust host still owns the
+origin decision; the browser SDK cannot grant itself access to IPC.

@@ -13,3 +13,10 @@ dependency supply-chain compromise, and renderer escape still require code
 signing, dependency audits, capability scoping, and Windows packaging review.
 No credentials are passed through the demo bridge, and no network request is
 made by the template.
+
+Vite development is a separate trust mode. The server is bound to
+`127.0.0.1`, the chosen port is passed to the native host, and Rust accepts
+only the exact `http://127.0.0.1:<port>` origin. Remote pages, alternate
+loopback names, wildcard hosts, and different ports cannot use the bridge.
+Production uses the existing `https://kourosh.app` custom protocol and does
+not start a development server.

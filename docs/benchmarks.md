@@ -43,3 +43,26 @@ single run is a comparison point rather than a performance conclusion.
 Host startup and idle memory were not measured because the Linux host
 intentionally exits with a WebView2-required message. These values are one
 run on this cloud machine, not Windows claims or product guarantees.
+
+## Phase 3 frontend measurements
+
+On the same cloud runtime, a generated React JavaScript project was installed
+with Node.js 24.19.0 and npm 11.9.0 before measuring. The production command
+was `npm run build`; the development measurement started Vite on a randomly
+allocated `127.0.0.1` port and polled `/` until it returned HTTP 200.
+The repeatable commands are `scripts/bench-frontend.sh <project>` and
+`node scripts/bench-sdk.mjs` after installing the generated project's local
+dependencies.
+
+| Measurement | Result |
+| --- | ---: |
+| Vite production build elapsed time | 2,577 ms |
+| Vite output size (`dist/`) | 147,069 bytes |
+| Vite dev server readiness | 1,230 ms |
+| SDK wrapper samples | 10,000 |
+| SDK wrapper overhead per call | 1.556 µs |
+
+The SDK wrapper benchmark uses an in-process resolved bridge stub and therefore
+does not represent WebView IPC or Python RPC latency. React and Node.js remain
+development/build dependencies only; the production host serves the generated
+static assets.
