@@ -144,3 +144,20 @@ Remaining risks are allocator-retained RSS, thread-per-request scheduling under
 heavy load, and all Windows WebView2/packaging measurements. Phase 8B should
 profile the Windows host on real hardware, evaluate a bounded worker pool, and
 repeat process-level memory studies before changing scheduling primitives.
+
+## Phase 8B — API stabilization and alpha preparation (cloud implementation in progress; Windows deferred)
+
+- Provisional alpha contracts now document public, experimental, and internal
+  Python, browser, CLI, configuration, protocol, plugin, and runtime-adapter
+  surfaces. Alpha compatibility is intentionally weaker than a 1.0 promise.
+- Framework version mapping is explicit and checked: Python `0.1.0a1`, browser
+  SDK `0.1.0-alpha.1`, Rust `0.1.0`, human release `v0.1.0-alpha.1`, protocol 1.
+- Local release checks produce a machine-readable report, wheel, deterministic
+  source archive, checksums, documentation/version checks, Rust/Python/Node
+  verification, and Windows-target cross-Clippy results. They never publish or
+  create tags/releases.
+- Alpha changelog, release notes, compatibility matrix, known limitations, and
+  final Windows validation checklist are maintained in the source tree.
+
+Phase 8B remains pending the final Windows platform-validation milestone,
+standard soak evidence, and any owner-approved publication review.

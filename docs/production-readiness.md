@@ -22,6 +22,8 @@
 | Linux resource instrumentation | Implemented where supported | `/proc` RSS/peak-RSS, fd, thread, active/queued samples in benchmark reports |
 | Bounded soak testing | Implemented and cloud-executed | `scripts/stress.sh` quick mode; configurable standard/extended durations |
 | Repeatable benchmark comparison | Implemented | `scripts/bench.sh` warmup, JSON reports, metrics-enabled/disabled comparison |
+| Alpha version mapping and release checks | Implemented locally; not published | `version.json`, `scripts/version-check.py`, `scripts/release-check.sh` |
+| Alpha documentation and compatibility | Implemented | API contract, compatibility matrix, known limitations, release checklist |
 | Code signing and public release | Planned | No signing keys or service are embedded |
 
 Phase 4B remains pending until the Windows rows are executed and recorded.

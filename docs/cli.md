@@ -80,3 +80,8 @@ missing prerequisites, unsupported operating systems, and observed failures.
 It contains no environment values or request payloads. The production host
 requires the Microsoft Evergreen WebView2 Runtime; Node.js and Vite are never
 needed after packaging.
+
+All commands return `0` on success and `2` for invalid configuration, missing
+inputs, or unsupported launch operations. `kourosh --version` reports the
+Python distribution version (`0.1.0a1`); `kourosh doctor --json` reports the
+same version and a schema-versioned check list.

@@ -37,6 +37,12 @@ managed HTTPS proxy. Keep `node_modules`, `.venv`, `target`, and frontend
 machine is still required for WebView2 GUI, portable package launch, installer,
 and production distribution validation.
 
+For alpha preparation, run `scripts/version-check.py --json` and
+`scripts/release-check.sh` after the worktree is clean. The release check writes
+its JSON report and wheel/source artifacts outside the checkout by default and
+does not publish packages. A standard soak is available with
+`KOUROSH_STRESS_MODE=standard scripts/stress.sh`; extended mode is optional.
+
 The managed onboarding configuration is locked/published in this environment;
 `docs/cloud-onboarding.md` is the authoritative reproducible setup record.
 Do not attempt to overwrite the locked onboarding settings from a task.

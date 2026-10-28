@@ -59,6 +59,10 @@ For runtime adapter and trusted plugin contracts, see
 and [docs/architecture/plugins.md](docs/architecture/plugins.md). Run the
 bounded reliability workload with [docs/stress-testing.md](docs/stress-testing.md).
 
+The planned first alpha is documented in [RELEASE_NOTES_ALPHA.md](RELEASE_NOTES_ALPHA.md),
+with the provisional API in [docs/api-stability.md](docs/api-stability.md) and
+local release checks in [docs/release-process.md](docs/release-process.md).
+
 See [docs/javascript-sdk.md](docs/javascript-sdk.md),
 [docs/react-quickstart.md](docs/react-quickstart.md), and
 [docs/vite-development.md](docs/vite-development.md) for the frontend

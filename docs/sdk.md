@@ -33,6 +33,10 @@ errors. `method_not_allowed`, `invalid_args`, `python_error`,
 `serialization_error`, `timeout`, and `window_closed` are examples of codes a
 frontend can handle. A timed-out Python call is no longer delivered to
 JavaScript, but its Python work may finish cooperatively in the worker thread.
+Handlers that declare a keyword parameter named `cancellation` receive a
+polling token with `is_canceled()` and `is_cancelled()`. The token is advisory:
+it never interrupts arbitrary synchronous code and does not roll back side
+effects. Handlers without that parameter retain their existing signature.
 
 `app.closed` exposes the lifecycle state for embedding tests and cleanup code;
 `app.close()` is idempotent and prevents new registrations or dispatches. SDK
@@ -44,3 +48,7 @@ Trusted application-bundled extensions can use `app.register_plugin(plugin)`;
 see the [plugin contract](architecture/plugins.md) for metadata, compatibility,
 rollback, and cleanup behavior. Plugins are in-process Python code and are not
 isolated from the application.
+
+The alpha Python package version is `0.1.0a1`. The API is provisional; private
+underscore methods and exact diagnostic wording may change in later alpha
+versions. See the [alpha API contract](api-stability.md).

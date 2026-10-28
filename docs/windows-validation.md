@@ -27,6 +27,14 @@ and verify that WebView2 data is created under the user's local application
 data directory. Record the Windows build, CPU/RAM, CPython version, WebView2
 version, artifact checksums, and commit SHA.
 
+For final platform validation, also verify the React/TypeScript notes example,
+JavaScript-to-Python success and structured exception mapping, absence of a
+system Python and Node.js runtime requirement, installer install/uninstall,
+Unicode and read-only installation paths, WebView2 prerequisite diagnostics,
+startup time, total application process-tree memory, and clean shutdown. These
+checks must be observed on Windows; cross-compilation and Linux staging tests
+cannot substitute for them.
+
 The installer path is separate:
 
 ```powershell
