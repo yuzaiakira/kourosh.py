@@ -525,6 +525,7 @@ app.run()
         std::fs::write(
             &path,
             r#"
+import asyncio
 import time
 from kourosh import App
 app = App(title="Cancellation")
@@ -533,6 +534,11 @@ def wait_for_cancel(cancellation):
     while not cancellation.is_cancelled():
         time.sleep(0.001)
     return {"cancelled": cancellation.is_canceled()}
+@app.expose
+async def wait_for_async_cancel(cancellation):
+    while not cancellation.is_canceled():
+        await asyncio.sleep(0.001)
+    return {"cancelled": cancellation.is_cancelled()}
 app.run()
 "#,
         )
@@ -566,6 +572,26 @@ app.run()
         }
         assert_eq!(dispatcher.metrics().active, 0);
         assert_eq!(dispatcher.metrics().timeouts, 1);
+        let async_raw = serde_json::json!({
+            "id": "cancel-python-async",
+            "method": "wait_for_async_cancel",
+            "args": {}
+        })
+        .to_string();
+        let async_response = dispatcher.dispatch_raw(
+            &async_raw,
+            kourosh_bridge::TRUSTED_ORIGIN,
+            std::time::Duration::from_millis(10),
+        );
+        assert_eq!(async_response.error.unwrap().code, "timeout");
+        for _ in 0..100 {
+            if dispatcher.metrics().active == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(dispatcher.metrics().active, 0);
+        assert_eq!(dispatcher.metrics().timeouts, 2);
         let _ = std::fs::remove_dir_all(directory);
     }
 
