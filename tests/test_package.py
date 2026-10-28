@@ -202,6 +202,20 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(app._method_names(), ["greet"])
             self.assertEqual(app._dispatch("greet", '{"name":"Akira"}'), {"message": "Hello Akira!"})
 
+    def test_generated_react_sdk_matches_the_checked_in_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = create_project("react_contract", Path(temporary), ui="react", typescript=True)
+            generated = root / "vendor" / "@kourosh" / "sdk"
+            source = Path(__file__).resolve().parents[1] / "packages" / "sdk"
+            self.assertEqual(
+                (generated / "index.d.ts").read_text(encoding="utf-8"),
+                (source / "index.d.ts").read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                (generated / "index.js").read_text(encoding="utf-8"),
+                (source / "index.js").read_text(encoding="utf-8"),
+            )
+
     def test_project_name_and_path_validation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             with self.assertRaises(ValueError):

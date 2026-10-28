@@ -102,7 +102,8 @@ test("ships the same framework-independent SDK contract", async () => {
 });
 
 test("maps structured bridge failures through the official module SDK", async () => {
-  const { invoke, KouroshError } = await import("../packages/sdk/index.js");
+  const { invoke, KouroshError, PROTOCOL_VERSION } = await import("../packages/sdk/index.js");
+  assert.equal(PROTOCOL_VERSION, 1);
   const previous = globalThis.kourosh;
   globalThis.kourosh = { invoke: async () => { throw { code: "method_not_allowed", message: "denied", requestId: "rpc-1" }; } };
   await assert.rejects(invoke("secret", {}), (error) => {

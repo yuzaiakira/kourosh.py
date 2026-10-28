@@ -2,6 +2,8 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
 
+export const PROTOCOL_VERSION: 1;
+
 export interface InvokeOptions {
   timeoutMs?: number;
 }
