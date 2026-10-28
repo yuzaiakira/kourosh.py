@@ -62,5 +62,16 @@ Inno Setup on Windows. It reports an actionable error on Linux or when
 `ISCC.exe` is unavailable; it does not fabricate an installer.
 
 Use `kourosh doctor` to inspect Python, platform, host discovery, and the
-Windows WebView2 prerequisite. The production host requires the Microsoft
-Evergreen WebView2 Runtime; Node.js and Vite are never needed after packaging.
+Windows WebView2 prerequisite. The human report labels each check `ok`,
+`missing`, or `unsupported`; it exits non-zero only for missing required
+Windows prerequisites. Add `--json` for automation and bug reports:
+
+```sh
+kourosh doctor --json > doctor.json
+```
+
+The report schema is versioned and distinguishes available capabilities,
+missing prerequisites, unsupported operating systems, and observed failures.
+It contains no environment values or request payloads. The production host
+requires the Microsoft Evergreen WebView2 Runtime; Node.js and Vite are never
+needed after packaging.

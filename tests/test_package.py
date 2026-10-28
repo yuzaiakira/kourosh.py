@@ -1,4 +1,5 @@
 import contextlib
+import asyncio
 import io
 import json
 import os
@@ -50,6 +51,30 @@ class PackageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             bad.expose(lambda: None, name="read-file")
 
+    def test_async_handlers_and_json_contract_errors(self) -> None:
+        app = App(title="Async")
+
+        @app.expose
+        async def greet_async(name: str) -> dict[str, str]:
+            await asyncio.sleep(0)
+            return {"message": f"Hello {name}"}
+
+        async def dispatch_from_loop() -> None:
+            self.assertEqual(app._dispatch("greet_async", '{"name":"Ada"}')['message'], "Hello Ada")
+
+        asyncio.run(dispatch_from_loop())
+        bad = App(title="Serialization")
+
+        @bad.expose
+        def returns_nan() -> float:
+            return float("nan")
+
+        with self.assertRaisesRegex(Exception, "non-JSON"):
+            bad._dispatch("returns_nan", "{}")
+        with self.assertRaises(Exception) as raised:
+            app._dispatch("bad-name", "{}")
+        self.assertEqual(raised.exception.code, "invalid_method")
+
     def test_generated_project_is_valid_and_uses_sdk_registry(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = create_project("myapp", Path(temporary))
@@ -57,6 +82,7 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(config.title, "Hello Kourosh")
             self.assertTrue((root / "assets").is_dir())
             self.assertTrue((root / "ui" / "kourosh.js").is_file())
+            self.assertIn('protocol: PROTOCOL_VERSION', (root / "ui" / "kourosh.js").read_text(encoding="utf-8"))
             previous = os.environ.get("KOUROSH_HOST_APP")
             os.environ["KOUROSH_HOST_APP"] = "1"
             try:
@@ -226,6 +252,17 @@ class PackageTests(unittest.TestCase):
             app.expose(lambda: None)
         with self.assertRaises(Exception):
             app._dispatch("anything", "{}")
+        self.assertTrue(app.closed)
+
+    def test_doctor_json_report_is_machine_readable(self) -> None:
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(main(["doctor", "--json"]), 0)
+        report = json.loads(output.getvalue())
+        self.assertEqual(report["schema"], 1)
+        checks = {check["name"]: check for check in report["checks"]}
+        self.assertIn(checks["webview2"]["status"], {"unsupported", "available", "missing"})
+        self.assertTrue(all(set(("name", "status", "detail", "required")) <= set(check) for check in report["checks"]))
 
 
 if __name__ == "__main__":

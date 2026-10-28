@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Callable, TypeVar, overload
 
@@ -18,7 +20,33 @@ __version__ = "0.2.0"
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 _MAX_TITLE_BYTES = 256
 _MAX_DIMENSION = 16_384
+_METHOD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 _F = TypeVar("_F", bound=Callable[..., Any])
+
+_LOGGER = logging.getLogger("kourosh")
+
+
+def configure_logging(level: str | None = None) -> None:
+    """Configure opt-in SDK diagnostics without logging request data.
+
+    The default is quiet. ``KOUROSH_LOG_LEVEL`` may be set by a developer to
+    ``DEBUG``, ``INFO``, ``WARNING`` or ``ERROR``; production applications can
+    leave it unset to avoid diagnostic output altogether.
+    """
+
+    selected = (level or os.environ.get("KOUROSH_LOG_LEVEL", "CRITICAL")).upper()
+    numeric = getattr(logging, selected, None)
+    if not isinstance(numeric, int):
+        raise ValueError("log level must be DEBUG, INFO, WARNING, ERROR, or CRITICAL")
+    if not _LOGGER.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("kourosh %(levelname)s: %(message)s"))
+        _LOGGER.addHandler(handler)
+    _LOGGER.setLevel(numeric)
+    _LOGGER.propagate = False
+
+
+configure_logging()
 
 
 class KouroshError(RuntimeError):
@@ -84,9 +112,17 @@ class App:
     def _method_names(self) -> list[str]:
         return list(self._methods)
 
+    @property
+    def closed(self) -> bool:
+        """Whether the application has completed SDK-side shutdown."""
+
+        return self._closed
+
     def _dispatch(self, method: str, args_json: str) -> Any:
         """Called by the embedded runtime after native allowlist checks."""
 
+        if not isinstance(method, str) or not _METHOD_RE.fullmatch(method):
+            raise _RpcError("invalid_method", "method must match the public RPC name format")
         if self._closed:
             raise _RpcError("shutdown", "the application is shut down")
         function = self._methods.get(method)
@@ -101,15 +137,19 @@ class App:
         try:
             result = function(**args)
             if inspect.isawaitable(result):
-                result = asyncio.run(result)
-            json.dumps(result, ensure_ascii=False, allow_nan=False)
-            return result
+                result = _run_awaitable(result)
         except _RpcError:
             raise
         except TypeError as error:
             raise _RpcError("invalid_args", "arguments did not match the exposed function") from error
         except Exception as error:  # noqa: BLE001 - scrub details at the RPC boundary.
+            _LOGGER.error("Python handler failed for registered method %s", method)
             raise _RpcError("python_error", "the Python handler raised an exception") from error
+        try:
+            json.dumps(result, ensure_ascii=False, allow_nan=False)
+        except (TypeError, ValueError, OverflowError) as error:
+            raise _RpcError("serialization_error", "the Python handler returned a non-JSON value") from error
+        return result
 
     def configuration(self) -> dict[str, Any]:
         """Return JSON-compatible metadata used by the developer host."""
@@ -193,6 +233,37 @@ class _RpcError(Exception):
         super().__init__(message)
 
 
+def _run_awaitable(awaitable: Any) -> Any:
+    """Resolve an async handler from a synchronous Rust/PyO3 callback.
+
+    Embedded callbacks normally run on a bridge worker without an active event
+    loop. If an application invokes ``_dispatch`` from an existing loop during
+    tests or embedding, execute the coroutine on a short-lived helper thread
+    instead of nesting ``asyncio.run`` and producing an unsafe loop error.
+    """
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(awaitable)
+
+    result: list[Any] = []
+    failure: list[BaseException] = []
+
+    def runner() -> None:
+        try:
+            result.append(asyncio.run(awaitable))
+        except BaseException as error:  # propagate the original handler failure
+            failure.append(error)
+
+    thread = threading.Thread(target=runner, name="kourosh-async-handler")
+    thread.start()
+    thread.join()
+    if failure:
+        raise failure[0]
+    return result[0]
+
+
 def _is_within(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)
@@ -218,4 +289,4 @@ def _find_host_binary() -> Path | None:
     return None
 
 
-__all__ = ["App", "KouroshError", "__version__"]
+__all__ = ["App", "KouroshError", "configure_logging", "__version__"]

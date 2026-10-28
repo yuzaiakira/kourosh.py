@@ -522,19 +522,65 @@ def _inno_escape(value: str) -> str:
     return value.replace('"', '""')
 
 
-def doctor() -> int:
-    print(f"kourosh {__version__}")
-    print(f"Python: {platform.python_version()} ({sys.executable})")
-    print(f"Platform: {platform.system()} {platform.machine()}")
-    print(f"Node.js: {shutil.which('node') or 'not found'}")
-    print(f"npm: {shutil.which('npm') or shutil.which('npm.cmd') or 'not found'}")
+def _diagnostic_check(name: str, status: str, detail: str, *, required: bool = False) -> dict[str, object]:
+    return {"name": name, "status": status, "detail": detail, "required": required}
+
+
+def diagnostic_report() -> dict[str, object]:
+    """Return a stable, machine-readable prerequisite report.
+
+    Status values intentionally distinguish a usable capability, a missing
+    optional/required prerequisite, an unsupported operating system, and an
+    observed failure. The report contains paths and versions, never secrets.
+    """
+
     host = _find_host_binary()
-    print(f"Native host: {host if host else 'not found'}")
-    if sys.platform != "win32":
-        print("WebView2 GUI: unavailable on this platform (Windows x64 is the initial target)")
-        return 0
-    print(f"WebView2 runtime: {'detected' if _webview2_present() else 'not detected'}")
-    return 0 if host and _webview2_present() else 1
+    node = shutil.which("node")
+    npm = shutil.which("npm") or shutil.which("npm.cmd")
+    checks = [
+        _diagnostic_check("python", "available", f"{platform.python_version()} ({sys.executable})", required=True),
+        _diagnostic_check("kourosh_sdk", "available", str(Path(__file__).resolve()), required=True),
+        _diagnostic_check("rust", "available" if shutil.which("cargo") else "missing", shutil.which("cargo") or "cargo is not installed"),
+        _diagnostic_check("node", "available" if node else "missing", node or "Node.js is not installed"),
+        _diagnostic_check("npm", "available" if npm else "missing", npm or "npm is not installed"),
+        _diagnostic_check("native_host", "available" if host else "missing", str(host) if host else "kourosh-host was not found"),
+    ]
+    if sys.platform == "win32":
+        webview_status = "available" if _webview2_present() else "missing"
+        webview_detail = "Microsoft Evergreen WebView2 Runtime detected" if _webview2_present() else "WebView2 Runtime is not installed"
+        checks.append(_diagnostic_check("webview2", webview_status, webview_detail, required=True))
+    else:
+        checks.append(
+            _diagnostic_check(
+                "webview2",
+                "unsupported",
+                "the WRY/WebView2 host is Windows-only; use a Windows machine for GUI validation",
+                required=True,
+            )
+        )
+    return {
+        "schema": 1,
+        "tool": "kourosh",
+        "version": __version__,
+        "platform": {"system": platform.system(), "machine": platform.machine(), "python": platform.python_version()},
+        "checks": checks,
+    }
+
+
+def doctor(*, json_output: bool = False) -> int:
+    report = diagnostic_report()
+    if json_output:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print(f"kourosh {__version__}")
+        print(f"Platform: {platform.system()} {platform.machine()}")
+        for check in report["checks"]:
+            marker = {"available": "ok", "missing": "missing", "unsupported": "unsupported", "failure": "failed"}.get(check["status"], "unknown")
+            print(f"[{marker}] {check['name']}: {check['detail']}")
+    required_failures = [
+        check for check in report["checks"] if check["required"] and check["status"] in {"missing", "failure"}
+    ]
+    return 1 if required_failures and sys.platform == "win32" else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -568,7 +614,8 @@ def main(argv: list[str] | None = None) -> int:
     package.add_argument("--host", type=Path, help="path to a real Windows x64 kourosh-host.exe")
     package.add_argument("--python-runtime", type=Path, help="official Windows embeddable CPython directory")
 
-    subparsers.add_parser("doctor", help="check local runtime prerequisites")
+    doctor_parser = subparsers.add_parser("doctor", help="check local runtime prerequisites")
+    doctor_parser.add_argument("--json", action="store_true", help="emit a machine-readable diagnostic report")
     args = parser.parse_args(argv)
     try:
         if args.command == "create":
@@ -592,7 +639,7 @@ def main(argv: list[str] | None = None) -> int:
                 host_binary=args.host,
                 python_runtime=args.python_runtime,
             )
-        return doctor()
+        return doctor(json_output=args.json)
     except (FileExistsError, OSError, RuntimeError, ValueError) as error:
         print(f"kourosh: error: {error}", file=sys.stderr)
         return 2
@@ -787,37 +834,55 @@ def _bridge_file() -> str:
   "use strict";
   if (window.__kouroshInstalled) return;
   window.__kouroshInstalled = true;
+  const PROTOCOL_VERSION = 1;
   const MAX_REQUEST_BYTES = 64 * 1024;
   const MAX_PENDING_REQUESTS = 32;
   const DEFAULT_TIMEOUT_MS = 5000;
+  const METHOD_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
   const pending = new Map();
   let sequence = 0;
   const nextId = () => `js-${Date.now().toString(36)}-${(++sequence).toString(36)}`;
+  const normalizeError = (error) => {
+    if (!error || typeof error !== "object") return { code: "unknown_error", message: "bridge call failed" };
+    const normalized = {
+      code: typeof error.code === "string" && error.code ? error.code : "unknown_error",
+      message: typeof error.message === "string" && error.message ? error.message : "bridge call failed",
+    };
+    if (typeof error.requestId === "string") normalized.requestId = error.requestId;
+    if (Object.hasOwn(error, "details")) normalized.details = error.details;
+    return normalized;
+  };
   window.__kouroshReceive = (response) => {
     if (!response || typeof response.id !== "string") return;
     const call = pending.get(response.id);
     if (!call) return;
     pending.delete(response.id);
     clearTimeout(call.timer);
-    response.ok === true ? call.resolve(response.result) : call.reject(response.error || { code: "unknown_error", message: "bridge call failed" });
+    if (response.ok === true) call.resolve(response.result);
+    else if (response.ok === false) call.reject(normalizeError(response.error));
+    else call.reject({ code: "malformed_response", message: "the native host returned an invalid response" });
   };
   window.__kouroshRejectAll = (error = { code: "window_closed", message: "window is closing" }) => {
-    for (const call of pending.values()) { clearTimeout(call.timer); call.reject(error); }
+    const normalized = normalizeError(error);
+    for (const call of pending.values()) { clearTimeout(call.timer); call.reject(normalized); }
     pending.clear();
   };
   window.addEventListener?.("beforeunload", () => window.__kouroshRejectAll({ code: "window_reloaded", message: "the renderer is reloading" }));
   window.kourosh = Object.freeze({ invoke(method, args, options = {}) {
-    if (typeof method !== "string" || !method) return Promise.reject({ code: "invalid_method", message: "method must be a non-empty string" });
+    if (typeof method !== "string" || !METHOD_PATTERN.test(method)) return Promise.reject({ code: "invalid_method", message: "method must match [A-Za-z_][A-Za-z0-9_]{0,63}" });
+    if (!args || typeof args !== "object" || Array.isArray(args)) return Promise.reject({ code: "invalid_args", message: "args must be a JSON object" });
+    if (!options || typeof options !== "object" || Array.isArray(options)) return Promise.reject({ code: "invalid_options", message: "options must be an object" });
     if (pending.size >= MAX_PENDING_REQUESTS) return Promise.reject({ code: "busy", message: "too many bridge calls are in flight" });
     const id = nextId();
-    const raw = JSON.stringify({ id, method, args });
-    if (new TextEncoder().encode(raw).byteLength > MAX_REQUEST_BYTES) return Promise.reject({ code: "request_too_large", message: "request exceeds the bridge limit" });
+    let raw;
+    try { raw = JSON.stringify({ protocol: PROTOCOL_VERSION, id, method, args }); } catch (_error) { return Promise.reject({ code: "invalid_args", message: "args must be JSON serializable" }); }
+    if (typeof raw !== "string" || new TextEncoder().encode(raw).byteLength > MAX_REQUEST_BYTES) return Promise.reject({ code: "request_too_large", message: "request exceeds the bridge limit" });
     if (!window.ipc || typeof window.ipc.postMessage !== "function") return Promise.reject({ code: "bridge_unavailable", message: "the native host IPC channel is unavailable" });
-    const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? Math.min(options.timeoutMs, DEFAULT_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS;
+    const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? Math.min(Math.max(options.timeoutMs, 1), DEFAULT_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { pending.delete(id); reject({ code: "timeout", message: "the bridge call timed out" }); }, timeoutMs);
+      const timer = setTimeout(() => { pending.delete(id); reject({ code: "timeout", message: "the bridge call timed out", requestId: id }); }, timeoutMs);
       pending.set(id, { resolve, reject, timer });
-      try { window.ipc.postMessage(raw); } catch (_error) { pending.delete(id); clearTimeout(timer); reject({ code: "transport_error", message: "the native IPC channel rejected the request" }); }
+      try { window.ipc.postMessage(raw); } catch (_error) { pending.delete(id); clearTimeout(timer); reject({ code: "transport_error", message: "the native IPC channel rejected the request", requestId: id }); }
     });
   }});
 })();
@@ -961,8 +1026,8 @@ _VANILLA_APP_JS = '''document.getElementById("greet-form").addEventListener("sub
   }
 });
 '''
-_SDK_JS = 'export class KouroshError extends Error { constructor(error) { const normalized = error && typeof error === "object" ? error : { code: "unknown_error", message: "bridge call failed" }; super(normalized.message || "bridge call failed"); this.name = "KouroshError"; this.code = normalized.code || "unknown_error"; } }\nexport async function invoke(method, args, options) { if (!globalThis.kourosh || typeof globalThis.kourosh.invoke !== "function") throw new KouroshError({ code: "bridge_unavailable", message: "the Kourosh bridge has not been initialized" }); try { return await globalThis.kourosh.invoke(method, args, options); } catch (error) { throw new KouroshError(error); } }\n'
-_SDK_DTS = 'export type JsonPrimitive = string | number | boolean | null;\nexport type JsonValue = JsonPrimitive | JsonObject | JsonValue[];\nexport type JsonObject = { [key: string]: JsonValue };\nexport interface InvokeOptions { timeoutMs?: number; }\nexport interface KouroshErrorShape { code: string; message: string; }\nexport class KouroshError extends Error { readonly code: string; constructor(error: KouroshErrorShape); }\nexport function invoke<TResult = unknown, TArgs extends JsonObject = JsonObject>(method: string, args: TArgs, options?: InvokeOptions): Promise<TResult>;\n'
+_SDK_JS = 'const METHOD_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;\nexport function normalizeError(error, fallback = "bridge call failed") { if (!error || typeof error !== "object") return { code: "unknown_error", message: fallback }; const normalized = { code: typeof error.code === "string" && error.code ? error.code : "unknown_error", message: typeof error.message === "string" && error.message ? error.message : fallback }; if (typeof error.requestId === "string") normalized.requestId = error.requestId; if (Object.hasOwn(error, "details")) normalized.details = error.details; return normalized; }\nexport class KouroshError extends Error { constructor(error) { const normalized = normalizeError(error); super(normalized.message); this.name = "KouroshError"; this.code = normalized.code; if (normalized.requestId !== undefined) this.requestId = normalized.requestId; if (normalized.details !== undefined) this.details = normalized.details; } }\nexport async function invoke(method, args, options) { if (typeof method !== "string" || !METHOD_PATTERN.test(method)) throw new KouroshError({ code: "invalid_method", message: "method must match [A-Za-z_][A-Za-z0-9_]{0,63}" }); if (!args || typeof args !== "object" || Array.isArray(args)) throw new KouroshError({ code: "invalid_args", message: "args must be a JSON object" }); try { JSON.stringify(args); } catch (_error) { throw new KouroshError({ code: "invalid_args", message: "args must be JSON serializable" }); } if (options !== undefined && (!options || typeof options !== "object" || Array.isArray(options))) throw new KouroshError({ code: "invalid_options", message: "options must be an object" }); if (!globalThis.kourosh || typeof globalThis.kourosh.invoke !== "function") throw new KouroshError({ code: "bridge_unavailable", message: "the Kourosh bridge has not been initialized" }); try { return await globalThis.kourosh.invoke(method, args, options); } catch (error) { if (error instanceof KouroshError) throw error; throw new KouroshError(error); } }\n'
+_SDK_DTS = 'export type JsonPrimitive = string | number | boolean | null;\nexport type JsonValue = JsonPrimitive | JsonObject | JsonValue[];\nexport type JsonObject = { [key: string]: JsonValue };\nexport interface InvokeOptions { timeoutMs?: number; }\nexport interface KouroshErrorShape { code: string; message: string; requestId?: string; details?: JsonValue; }\nexport class KouroshError extends Error { readonly code: string; readonly requestId?: string; readonly details?: JsonValue; constructor(error: KouroshErrorShape); }\nexport function normalizeError(error: unknown, fallback?: string): KouroshErrorShape;\nexport function invoke<TResult = unknown, TArgs extends JsonObject = JsonObject>(method: string, args: TArgs, options?: InvokeOptions): Promise<TResult>;\n'
 
 
 if __name__ == "__main__":  # pragma: no cover

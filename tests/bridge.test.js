@@ -36,6 +36,7 @@ test("resolves a successful response by request ID", async () => {
   let rawRequest;
   const window = createBridge((raw) => { rawRequest = JSON.parse(raw); });
   const promise = window.kourosh.invoke("greet", { name: "Ada" });
+  assert.equal(rawRequest.protocol, 1);
   window.__kouroshReceive({
     id: rawRequest.id,
     ok: true,
@@ -77,6 +78,19 @@ test("cleans up pending calls on transport failure, close, and timeout", async (
   );
 });
 
+test("rejects invalid methods, arguments, options, and malformed responses", async () => {
+  const window = createBridge(() => {});
+  await assert.rejects(window.kourosh.invoke("read-file", {}), (error) => error.code === "invalid_method");
+  await assert.rejects(window.kourosh.invoke("greet", []), (error) => error.code === "invalid_args");
+  await assert.rejects(window.kourosh.invoke("greet", {}, null), (error) => error.code === "invalid_options");
+
+  let request;
+  const responseWindow = createBridge((raw) => { request = JSON.parse(raw); });
+  const pending = responseWindow.kourosh.invoke("greet", {});
+  responseWindow.__kouroshReceive({ id: request.id, ok: "yes" });
+  await assert.rejects(pending, (error) => error.code === "malformed_response");
+});
+
 test("ships the same framework-independent SDK contract", async () => {
   let rawRequest;
   const window = createBridge((raw) => { rawRequest = JSON.parse(raw); }, sdkSource);
@@ -88,11 +102,20 @@ test("ships the same framework-independent SDK contract", async () => {
 test("maps structured bridge failures through the official module SDK", async () => {
   const { invoke, KouroshError } = await import("../packages/sdk/index.js");
   const previous = globalThis.kourosh;
-  globalThis.kourosh = { invoke: async () => { throw { code: "method_not_allowed", message: "denied" }; } };
+  globalThis.kourosh = { invoke: async () => { throw { code: "method_not_allowed", message: "denied", requestId: "rpc-1" }; } };
   await assert.rejects(invoke("secret", {}), (error) => {
     assert.ok(error instanceof KouroshError);
-    return error.code === "method_not_allowed" && error.message === "denied";
+    return error.code === "method_not_allowed" && error.message === "denied" && error.requestId === "rpc-1";
   });
+  globalThis.kourosh = previous;
+});
+
+test("validates the framework-independent SDK before using the bridge", async () => {
+  const { invoke } = await import("../packages/sdk/index.js");
+  const previous = globalThis.kourosh;
+  globalThis.kourosh = { invoke: async () => ({ ok: true }) };
+  await assert.rejects(invoke("bad-name", {}), (error) => error.code === "invalid_method");
+  await assert.rejects(invoke("greet", []), (error) => error.code === "invalid_args");
   globalThis.kourosh = previous;
 });
 

@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 // WRY maps the custom `kourosh` protocol to this HTTPS origin on Windows.
 pub const TRUSTED_ORIGIN: &str = "https://kourosh.app";
+pub const PROTOCOL_VERSION: u8 = 1;
 pub const MAX_REQUEST_BYTES: usize = 64 * 1024;
 pub const MAX_REQUEST_ID_BYTES: usize = 128;
 pub const MAX_NAME_BYTES: usize = 256;
@@ -54,6 +55,7 @@ impl BridgeError {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RpcResponse {
+    pub protocol: u8,
     pub id: Option<String>,
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,6 +67,7 @@ pub struct RpcResponse {
 impl RpcResponse {
     pub fn success(id: String, result: Value) -> Self {
         Self {
+            protocol: PROTOCOL_VERSION,
             id: Some(id),
             ok: true,
             result: Some(result),
@@ -74,6 +77,7 @@ impl RpcResponse {
 
     pub fn failure(id: Option<String>, error: BridgeError) -> Self {
         Self {
+            protocol: PROTOCOL_VERSION,
             id,
             ok: false,
             result: None,
@@ -128,6 +132,15 @@ fn parse_request_with_methods_internal(
     let object = value
         .as_object()
         .ok_or_else(|| BridgeError::new("malformed_request", "request must be a JSON object"))?;
+
+    if let Some(protocol) = object.get("protocol") {
+        if protocol.as_u64() != Some(u64::from(PROTOCOL_VERSION)) {
+            return Err(BridgeError::new(
+                "unsupported_protocol",
+                format!("bridge protocol version must be {PROTOCOL_VERSION}"),
+            ));
+        }
+    }
 
     let id = object
         .get("id")
@@ -517,6 +530,24 @@ mod tests {
         assert_eq!(
             parse_request(&bad, TRUSTED_ORIGIN).unwrap_err().code,
             "invalid_args"
+        );
+    }
+
+    #[test]
+    fn accepts_legacy_requests_and_rejects_unknown_protocol_versions() {
+        assert!(parse_request(&request("legacy", "Ada"), TRUSTED_ORIGIN).is_ok());
+        let incompatible = serde_json::json!({
+            "protocol": PROTOCOL_VERSION + 1,
+            "id": "future",
+            "method": "greet",
+            "args": {"name": "Ada"}
+        })
+        .to_string();
+        assert_eq!(
+            parse_request(&incompatible, TRUSTED_ORIGIN)
+                .unwrap_err()
+                .code,
+            "unsupported_protocol"
         );
     }
 

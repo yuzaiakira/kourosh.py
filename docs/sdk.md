@@ -29,7 +29,13 @@ limitation instead of launching a mock host. `KOUROSH_HOST_BIN` can point at a
 locally built host during development.
 
 Python exceptions are scrubbed at the bridge boundary into stable structured
-errors. `method_not_allowed`, `invalid_args`, `python_error`, `timeout`, and
-`window_closed` are examples of codes a frontend can handle. A timed-out
-Python call is no longer delivered to JavaScript, but its Python work may
-finish cooperatively in the worker thread.
+errors. `method_not_allowed`, `invalid_args`, `python_error`,
+`serialization_error`, `timeout`, and `window_closed` are examples of codes a
+frontend can handle. A timed-out Python call is no longer delivered to
+JavaScript, but its Python work may finish cooperatively in the worker thread.
+
+`app.closed` exposes the lifecycle state for embedding tests and cleanup code;
+`app.close()` is idempotent and prevents new registrations or dispatches. SDK
+diagnostics are quiet by default. Set `KOUROSH_LOG_LEVEL=DEBUG` (or call
+`configure_logging("INFO")`) during development to receive method-level
+failure summaries without argument values or exception traces.

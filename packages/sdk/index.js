@@ -1,15 +1,48 @@
+const METHOD_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
+export function normalizeError(error, fallback = "bridge call failed") {
+  if (!error || typeof error !== "object") {
+    return { code: "unknown_error", message: fallback };
+  }
+  const normalized = {
+    code: typeof error.code === "string" && error.code ? error.code : "unknown_error",
+    message: typeof error.message === "string" && error.message ? error.message : fallback,
+  };
+  if (typeof error.requestId === "string") normalized.requestId = error.requestId;
+  if (Object.hasOwn(error, "details")) normalized.details = error.details;
+  return normalized;
+}
+
 export class KouroshError extends Error {
   constructor(error) {
-    const normalized = error && typeof error === "object"
-      ? error
-      : { code: "unknown_error", message: "bridge call failed" };
-    super(typeof normalized.message === "string" ? normalized.message : "bridge call failed");
+    const normalized = normalizeError(error);
+    super(normalized.message);
     this.name = "KouroshError";
-    this.code = typeof normalized.code === "string" ? normalized.code : "unknown_error";
+    this.code = normalized.code;
+    if (normalized.requestId !== undefined) this.requestId = normalized.requestId;
+    if (normalized.details !== undefined) this.details = normalized.details;
   }
 }
 
+function invalidArgument(code, message) {
+  throw new KouroshError({ code, message });
+}
+
 export async function invoke(method, args, options) {
+  if (typeof method !== "string" || !METHOD_PATTERN.test(method)) {
+    invalidArgument("invalid_method", "method must match [A-Za-z_][A-Za-z0-9_]{0,63}");
+  }
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    invalidArgument("invalid_args", "args must be a JSON object");
+  }
+  try {
+    JSON.stringify(args);
+  } catch (_error) {
+    invalidArgument("invalid_args", "args must be JSON serializable");
+  }
+  if (options !== undefined && (!options || typeof options !== "object" || Array.isArray(options))) {
+    invalidArgument("invalid_options", "options must be an object");
+  }
   if (!globalThis.kourosh || typeof globalThis.kourosh.invoke !== "function") {
     throw new KouroshError({
       code: "bridge_unavailable",
@@ -19,6 +52,7 @@ export async function invoke(method, args, options) {
   try {
     return await globalThis.kourosh.invoke(method, args, options);
   } catch (error) {
+    if (error instanceof KouroshError) throw error;
     throw new KouroshError(error);
   }
 }
