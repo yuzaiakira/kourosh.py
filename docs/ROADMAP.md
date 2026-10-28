@@ -47,3 +47,22 @@ signing, and broad native capabilities remain future work.
 
 Vue/Svelte templates, Windows GUI/HMR validation, signing, and final desktop
 packaging remain outside this phase.
+
+## Phase 4 — production packaging and Windows distribution (Level A implementation complete; Level B pending)
+
+- `kourosh build --target windows --format portable` stages a real Windows x64
+  PE host, an official embeddable CPython runtime, the Python application,
+  frontend assets, framework SDK, license notices, a manifest, checksums, and
+  a ZIP archive.
+- Packaged host startup discovers and validates the manifest, applies isolated
+  Python search paths, and preserves the existing trusted-origin bridge.
+- Optional `--format installer` integration emits an Inno Setup script and
+  requires `ISCC.exe` on Windows; it is not complete or tested on Linux.
+- Headless tests cover metadata, real-input rejection, staging layout,
+  traversal/symlink handling, checksums, and archive creation.
+
+Level B remains pending until a real Windows x64 machine launches a copied
+package with WebView2 and verifies frontend rendering, RPC success and
+exceptions, clean shutdown, prerequisite diagnostics, and startup/memory
+measurements. Code signing, installer certification, native-extension
+dependency audits, and clean-VM verification are next release tasks.

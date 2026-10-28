@@ -33,3 +33,26 @@ For Phase 3, run `npm install` in a generated React project, then use
 new greeting call still reaches Python. Run `kourosh frontend build` and
 `kourosh run` afterward to verify the static production path without a Vite
 process. Record the Vite, Node.js, WebView2, Rust, and commit versions.
+
+## Phase 4 copied-package check
+
+On the same Windows machine, obtain the official x64 embeddable CPython
+directory and build a real release host, then run:
+
+```powershell
+.\scripts\package-smoke.ps1 `
+  -ProjectPath .\hello-react `
+  -PythonRuntime C:\runtimes\python-3.12-embed-amd64 `
+  -HostPath .\target\x86_64-pc-windows-msvc\release\kourosh-host.exe
+```
+
+The script checks WebView2, builds the portable package, copies it to a fresh
+temporary path containing spaces and Unicode, and starts the copied executable
+outside the source checkout. Manually verify that the real frontend appears,
+JavaScript invokes an exposed Python method, a Python exception is surfaced as
+a structured error, and closing the window exits cleanly. The script also
+checks that the copied package contains neither `python.exe` nor `node.exe`;
+this is evidence about package contents, not a substitute for a clean-machine
+process inspection. Record the Windows build, CPython and WebView2 versions,
+artifact SHA-256, host commit, and observations. Linux cannot perform this
+smoke test.

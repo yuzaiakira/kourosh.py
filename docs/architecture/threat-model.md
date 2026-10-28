@@ -20,3 +20,12 @@ only the exact `http://127.0.0.1:<port>` origin. Remote pages, alternate
 loopback names, wildcard hosts, and different ports cannot use the bridge.
 Production uses the existing `https://kourosh.app` custom protocol and does
 not start a development server.
+
+Portable packaging adds a second boundary around resources: the build rejects
+symlinks and path escapes, writes only a new artifact directory, validates the
+host as a Windows x64 PE file, and requires the CPython DLL, standard-library
+ZIP, and redistribution notice. At startup the native host validates the
+packaged manifest against the executable directory and clears ambient
+`PYTHONPATH`/user-site imports. A package can still contain a malicious Python
+application or dependency; package signing, dependency review, and clean-VM
+verification remain release responsibilities.

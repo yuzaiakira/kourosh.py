@@ -4,12 +4,13 @@ Kourosh.py is a Python-first desktop framework prototype. Python owns
 application logic while a small Rust host owns the window and WebView lifecycle.
 
 The current vertical slice includes a bounded, default-deny asynchronous JSON
-bridge, embedded CPython through PyO3, a Python `App` SDK, a developer CLI, and
-a vanilla HTML demo. A user app's `@app.expose` methods are loaded by the
-native host and allowlisted in Rust before invocation. The Windows host uses
-WRY/WebView2 and is guarded behind Windows compilation. Linux cloud validation
-exercises the portable bridge, embedded Python, SDK, CLI, and generated-project
-tests; it does not claim a Windows GUI smoke test.
+bridge, embedded CPython through PyO3, a Python `App` SDK, a developer CLI,
+vanilla and React/Vite templates, and a Windows x64 portable packaging
+pipeline. A user app's `@app.expose` methods are loaded by the native host and
+allowlisted in Rust before invocation. The Windows host uses WRY/WebView2 and
+is guarded behind Windows compilation. Linux cloud validation exercises the
+bridge, embedded Python, SDK, CLI, staging, checksums, and generated-project
+tests; it does not claim a Windows GUI or packaged executable smoke test.
 
 ## Verify locally
 
@@ -48,5 +49,8 @@ frontend execution; Node.js is not part of that runtime path.
 
 See [docs/javascript-sdk.md](docs/javascript-sdk.md),
 [docs/react-quickstart.md](docs/react-quickstart.md), and
-[docs/vite-development.md](docs/vite-development.md) for the Phase 3 frontend
-workflow.
+[docs/vite-development.md](docs/vite-development.md) for the frontend
+workflow. Read [docs/windows-build.md](docs/windows-build.md),
+[docs/python-runtime.md](docs/python-runtime.md), and
+[docs/portable-distribution.md](docs/portable-distribution.md) before making a
+Windows artifact.

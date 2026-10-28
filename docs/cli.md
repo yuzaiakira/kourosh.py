@@ -41,6 +41,26 @@ For a Vite project, use `kourosh frontend build` to create production assets
 and `kourosh run` to load them without Node.js. `kourosh dev` is the only
 command that starts Vite.
 
+Build a Windows x64 portable distribution from a real host and an official
+embeddable CPython directory:
+
+```powershell
+kourosh build --target windows --format portable `
+  --python-runtime C:\runtimes\python-3.12-embed-amd64 `
+  --host C:\path\to\kourosh-host.exe
+```
+
+The host and runtime can also be selected with `KOUROSH_HOST_BIN` and
+`KOUROSH_PYTHON_RUNTIME`. The output contains the app, frontend, CPython,
+framework SDK, manifest, licenses, checksums, and a ZIP archive. The build
+rejects placeholder/non-PE hosts, incomplete runtimes, symlinks, path escapes,
+and existing artifact directories. See the [Windows build guide](windows-build.md)
+and [portable distribution guide](portable-distribution.md).
+
+`kourosh build --target windows --format installer` is optional and requires
+Inno Setup on Windows. It reports an actionable error on Linux or when
+`ISCC.exe` is unavailable; it does not fabricate an installer.
+
 Use `kourosh doctor` to inspect Python, platform, host discovery, and the
-Windows WebView2 prerequisite. Packaging and distribution are intentionally
-out of scope for this phase.
+Windows WebView2 prerequisite. The production host requires the Microsoft
+Evergreen WebView2 Runtime; Node.js and Vite are never needed after packaging.

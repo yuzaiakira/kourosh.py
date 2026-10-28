@@ -66,3 +66,14 @@ The SDK wrapper benchmark uses an in-process resolved bridge stub and therefore
 does not represent WebView IPC or Python RPC latency. React and Node.js remain
 development/build dependencies only; the production host serves the generated
 static assets.
+
+## Phase 4 packaging measurements
+
+The portable packaging command now records artifact bytes in
+`build-manifest.json` and emits a ZIP SHA-256 sidecar. No Windows package-size,
+cold-start, WebView2 working-set, or idle-CPU measurement is claimed yet: the
+current environment is Linux and has no runnable Windows host. Run
+`scripts/package-smoke.ps1` on Windows, record the package directory and ZIP
+sizes, cold start to the first visible window, the full process-tree working
+set, and shutdown cleanup, then add the machine, Windows build, CPython,
+WebView2, Rust profile, and commit SHA alongside the results.
