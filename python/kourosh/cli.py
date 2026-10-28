@@ -254,6 +254,9 @@ def _validate_built_frontend(config: ProjectConfig) -> None:
         raise RuntimeError(f"built frontend is empty: {config.frontend}")
     if not _is_within(config.frontend.resolve(), config.root):
         raise RuntimeError(f"built frontend escapes the project: {config.frontend}")
+    for asset in config.frontend.parent.rglob("*"):
+        if asset.is_symlink() or not _is_within(asset.resolve(), config.root):
+            raise RuntimeError(f"built asset escapes the project: {asset}")
 
 
 def _start_vite(npm: str, root: Path, port: int) -> subprocess.Popen[str]:
