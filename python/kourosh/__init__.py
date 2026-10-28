@@ -20,7 +20,7 @@ __version__ = "0.2.0"
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 _MAX_TITLE_BYTES = 256
 _MAX_DIMENSION = 16_384
-_METHOD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+_METHOD_RE = _NAME_RE
 _F = TypeVar("_F", bound=Callable[..., Any])
 
 _LOGGER = logging.getLogger("kourosh")
@@ -135,13 +135,20 @@ class App:
         if not isinstance(args, dict):
             raise _RpcError("invalid_args", "arguments must be a JSON object")
         try:
+            try:
+                signature = inspect.signature(function)
+            except (TypeError, ValueError):
+                signature = None
+            if signature is not None:
+                try:
+                    signature.bind(**args)
+                except TypeError as error:
+                    raise _RpcError("invalid_args", "arguments did not match the exposed function") from error
             result = function(**args)
             if inspect.isawaitable(result):
                 result = _run_awaitable(result)
         except _RpcError:
             raise
-        except TypeError as error:
-            raise _RpcError("invalid_args", "arguments did not match the exposed function") from error
         except Exception as error:  # noqa: BLE001 - scrub details at the RPC boundary.
             _LOGGER.error("Python handler failed for registered method %s", method)
             raise _RpcError("python_error", "the Python handler raised an exception") from error

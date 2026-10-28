@@ -26,6 +26,11 @@ kourosh create react-app --ui react
 kourosh create react-ts-app --ui react --typescript
 ```
 
+The equivalent shorthand is `kourosh create react-ts-app --template react-ts`.
+The generator never downloads a runtime or starts Node.js for the packaged
+application; npm is only needed to install and build frontend assets during
+development.
+
 Run the native development host with:
 
 ```sh

@@ -125,3 +125,15 @@ test("rejects pending calls when the renderer reloads", async () => {
   window.__listeners.get("beforeunload")();
   await assert.rejects(pending, (error) => error.code === "window_reloaded");
 });
+
+test("matches concurrent responses by request ID", async () => {
+  const requests = [];
+  const window = createBridge((raw) => requests.push(JSON.parse(raw)));
+  const promises = Array.from({ length: 16 }, (_value, index) => window.kourosh.invoke("greet", { name: String(index) }));
+  assert.equal(requests.length, 16);
+  for (const request of [...requests].reverse()) {
+    window.__kouroshReceive({ id: request.id, ok: true, result: { index: request.args.name } });
+  }
+  const results = await Promise.all(promises);
+  assert.deepEqual(results.map((result) => result.index), Array.from({ length: 16 }, (_value, index) => String(index)));
+});

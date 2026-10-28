@@ -592,7 +592,7 @@ def main(argv: list[str] | None = None) -> int:
     create.add_argument("name")
     create.add_argument("--directory", type=Path, default=Path.cwd())
     create.add_argument("--ui", choices=("vanilla", "react"), default="vanilla")
-    create.add_argument("--template", choices=("vanilla", "react"), dest="template", help=argparse.SUPPRESS)
+    create.add_argument("--template", choices=("vanilla", "react", "react-ts"), dest="template", help=argparse.SUPPRESS)
     create.add_argument("--typescript", action="store_true")
 
     dev = subparsers.add_parser("dev", help="run the development frontend and native host")
@@ -620,7 +620,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "create":
             ui = args.template or args.ui
-            root = create_project(args.name, args.directory, ui=ui, typescript=args.typescript)
+            typescript = args.typescript or ui == "react-ts"
+            root = create_project(args.name, args.directory, ui="react" if ui == "react-ts" else ui, typescript=typescript)
             print(f"Created {root}")
             return 0
         if args.command == "dev":

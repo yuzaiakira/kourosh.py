@@ -71,6 +71,15 @@ class PackageTests(unittest.TestCase):
 
         with self.assertRaisesRegex(Exception, "non-JSON"):
             bad._dispatch("returns_nan", "{}")
+        failing = App(title="Handler failure")
+
+        @failing.expose
+        def raises_type_error() -> None:
+            raise TypeError("handler bug")
+
+        with self.assertRaises(Exception) as handler_error:
+            failing._dispatch("raises_type_error", "{}")
+        self.assertEqual(handler_error.exception.code, "python_error")
         with self.assertRaises(Exception) as raised:
             app._dispatch("bad-name", "{}")
         self.assertEqual(raised.exception.code, "invalid_method")
@@ -224,6 +233,12 @@ class PackageTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 create_project("bad", destination, ui="vanilla", typescript=True)
+
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(main(["create", "template_alias", "--directory", str(destination), "--template", "react-ts"]), 0)
+            alias = destination / "template_alias"
+            self.assertTrue((alias / "src" / "App.tsx").is_file())
 
             (react / "kourosh.toml").write_text(
                 '[app]\ntitle="React"\nentrypoint="main.py"\nfrontend="dist/index.html"\n[frontend]\ntype="vite"\nroot="."\ndist="dist/index.html"\ndev_port=80\n',
