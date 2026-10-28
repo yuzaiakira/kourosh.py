@@ -53,3 +53,9 @@ case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*) ;;
   *) echo "Windows WRY/WebView2 GUI smoke test not run on this host" ;;
 esac
+
+if command -v zensical >/dev/null 2>&1; then
+  ./scripts/docs-check.sh
+else
+  echo "Zensical is not installed; documentation site checks were not run" >&2
+fi

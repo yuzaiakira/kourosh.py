@@ -25,3 +25,11 @@ if (Get-Command node -ErrorAction SilentlyContinue) {
 if ($env:OS -ne "Windows_NT") {
     Write-Output "Windows WRY/WebView2 GUI smoke test not run on this host"
 }
+
+if (Get-Command zensical -ErrorAction SilentlyContinue) {
+    python scripts/check-docs.py
+    zensical build --clean
+    if (-not (Test-Path ".\site\index.html")) { throw "documentation site did not produce site/index.html" }
+} else {
+    Write-Warning "Zensical is not installed; documentation site checks were not run"
+}

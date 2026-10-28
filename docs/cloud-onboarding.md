@@ -43,6 +43,12 @@ its JSON report and wheel/source artifacts outside the checkout by default and
 does not publish packages. A standard soak is available with
 `KOUROSH_STRESS_MODE=standard scripts/stress.sh`; extended mode is optional.
 
+The documentation website uses pinned Zensical dependencies. Install them with
+`python3 -m pip install -r docs/requirements.txt`, run `scripts/docs-check.sh`
+to validate links, code fences, CLI help, versions, navigation, and a static
+build, and use `zensical serve` for a local preview. The generated `site/`
+directory remains local build output.
+
 The managed onboarding configuration is locked/published in this environment;
 `docs/cloud-onboarding.md` is the authoritative reproducible setup record.
 Do not attempt to overwrite the locked onboarding settings from a task.

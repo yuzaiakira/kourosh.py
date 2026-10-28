@@ -1,74 +1,93 @@
 # Kourosh.py
 
-Kourosh.py is a Python-first desktop framework prototype. Python owns
-application logic while a small Rust host owns the window and WebView lifecycle.
+Kourosh.py is a Python-first desktop application framework. Python owns
+application logic; a small Rust host owns the Windows window and WebView2
+lifecycle; HTML, CSS, JavaScript, TypeScript, and React provide the UI.
 
-The current vertical slice includes a bounded, default-deny asynchronous JSON
-bridge, embedded CPython through PyO3, a Python `App` SDK, a developer CLI,
-vanilla and React/Vite templates, and a Windows x64 portable packaging
-pipeline. A user app's `@app.expose` methods are loaded by the native host and
-allowlisted in Rust before invocation. The Windows host uses WRY/WebView2 and
-is guarded behind Windows compilation. Linux cloud validation exercises the
-bridge, embedded Python, SDK, CLI, staging, checksums, and generated-project
-tests; it does not claim a Windows GUI or packaged executable smoke test.
+The current source tree contains a bounded, default-deny asynchronous bridge,
+embedded CPython through PyO3, a Python SDK and CLI, vanilla and React/Vite
+templates, and Windows portable staging. It is experimental alpha software.
 
-## Verify locally
+!!! warning "Windows validation is still pending"
 
-Install Python 3.12 and Rust stable, then run:
+    Cloud checks cover the bridge, embedded Python, SDK, CLI, frontend builds,
+    and packaging logic. A real Windows 10/11 x64 machine is still required to
+    validate WRY/WebView2 rendering, the portable package, installer behavior,
+    clean-machine independence, and Windows performance.
+
+## Quick installation
+
+The alpha has not been published to PyPI. Install from the repository:
 
 ```sh
-./scripts/check.sh
+git clone https://github.com/yuzaiakira/kourosh.py.git
+cd kourosh.py
+python3.12 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e .
+kourosh doctor
 ```
 
-For a relocated Python distribution, the check script derives the adjacent
-shared-library directory for PyO3 linking and runtime loading. A Windows host
-should use its normal Python installation and WebView2 runtime.
+Create a vanilla application:
 
-The script runs Rust formatting, workspace tests, Clippy, Python compilation,
-and the standard-library Python test suite. On Windows it also provides the command sequence
-for the WRY host; WebView2 must be installed separately.
+```sh
+kourosh create hello
+cd hello
+kourosh dev
+```
 
-Create a project with `kourosh create myapp`, validate prerequisites with
-`kourosh doctor`, and read [docs/cli.md](docs/cli.md) and
-[docs/sdk.md](docs/sdk.md) for the supported developer flow. See
-[docs/ROADMAP.md](docs/ROADMAP.md), the architecture notes under
-`docs/architecture/`, [docs/benchmarks.md](docs/benchmarks.md), and
-[CONTRIBUTING.md](CONTRIBUTING.md) for scope and security constraints.
+On Linux, `kourosh dev` validates the project and reports the Windows-only
+host limitation. It never launches a fake desktop window.
 
-React and TypeScript projects are available through the local Vite templates:
+## Documentation
+
+Read the [developer documentation](docs/index.md) for installation, the
+[quick start](docs/getting-started/quickstart.md), Python and JavaScript API
+references, React/Vite workflow, CLI commands, packaging, security, examples,
+and troubleshooting.
+
+Build or preview the static documentation site locally:
+
+```sh
+python -m pip install -r docs/requirements.txt
+zensical build --clean
+zensical serve
+```
+
+## React and TypeScript
 
 ```sh
 kourosh create react-demo --ui react --typescript
 cd react-demo
 npm install
-kourosh dev
+npm run typecheck
+kourosh frontend build
 ```
 
-Use `kourosh frontend build` followed by `kourosh run` for static production
-frontend execution; Node.js is not part of that runtime path.
+The generated project includes a local vendored `@kourosh/sdk`; no unpublished
+npm package is required. Node.js is a build-time dependency and is not part of
+the packaged runtime.
 
-The real SQLite notes application in [examples/notes-react-ts](examples/notes-react-ts)
-demonstrates React/TypeScript CRUD methods backed by embedded Python and a
-user-data SQLite database. Its typecheck, production Vite build, and Python
-CRUD tests run locally; its native Windows validation uses
-`scripts/package-smoke.ps1`.
+## Project status
 
-For a reproducible cloud setup, see [docs/cloud-onboarding.md](docs/cloud-onboarding.md).
-For runtime adapter and trusted plugin contracts, see
-[docs/architecture/runtime-adapters.md](docs/architecture/runtime-adapters.md)
-and [docs/architecture/plugins.md](docs/architecture/plugins.md). Run the
-bounded reliability workload with [docs/stress-testing.md](docs/stress-testing.md).
+- Python SDK: `0.1.0a1`
+- JavaScript SDK: `0.1.0-alpha.1`
+- Rust components: `0.1.0`
+- RPC protocol: `1`
+- Planned release: `v0.1.0-alpha.1` (unreleased)
 
-The planned first alpha is documented in [RELEASE_NOTES_ALPHA.md](RELEASE_NOTES_ALPHA.md),
-with the provisional API in [docs/api-stability.md](docs/api-stability.md) and
-local release checks in [docs/release-process.md](docs/release-process.md).
+Use the [compatibility matrix](docs/compatibility.md), [known limitations](docs/known-limitations.md),
+and [Windows validation handoff](docs/windows-validation.md) to distinguish
+implemented, cloud-tested, experimental, planned, and unverified behavior.
 
-See [docs/javascript-sdk.md](docs/javascript-sdk.md),
-[docs/react-quickstart.md](docs/react-quickstart.md), and
-[docs/vite-development.md](docs/vite-development.md) for the frontend
-workflow. Read [docs/cli.md](docs/cli.md) for command reference and
-[docs/troubleshooting.md](docs/troubleshooting.md) for structured diagnostics.
-Read [docs/windows-build.md](docs/windows-build.md),
-[docs/python-runtime.md](docs/python-runtime.md), and
-[docs/portable-distribution.md](docs/portable-distribution.md) before making a
-Windows artifact.
+## Development
+
+```sh
+./scripts/check.sh
+./scripts/docs-check.sh
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md), [architecture notes](docs/architecture/),
+the [roadmap](docs/ROADMAP.md), and the [release process](docs/release-process.md).
+Kourosh.py does not use GitHub Actions and does not publish packages or
+documentation automatically.

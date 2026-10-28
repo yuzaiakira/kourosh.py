@@ -70,6 +70,7 @@ run_check wheel_build env WHEEL_DIR="$artifact_dir" python3 -m pip wheel --no-de
 run_check source_archive python3 scripts/build-sdist.py --output-dir "$artifact_dir"
 run_check license_metadata bash -lc 'test -s LICENSE && test -s docs/dependencies-licensing.md'
 run_shell_check docs_consistency 'for file in CHANGELOG.md RELEASE_NOTES_ALPHA.md docs/release-process.md docs/compatibility.md docs/known-limitations.md docs/alpha-release-checklist.md docs/api-stability.md; do test -s "$file" || exit 1; done'
+run_check docs_site ./scripts/docs-check.sh
 run_shell_check no_workflows 'test ! -d .github/workflows'
 run_check javascript_tests node tests/bridge.test.js
 run_shell_check javascript_syntax 'node --check packages/sdk/index.js && node --check packages/sdk/kourosh.js && node --check examples/hello-vanilla/bridge.js && node --check examples/hello-vanilla/app.js'
