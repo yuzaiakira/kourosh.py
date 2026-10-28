@@ -33,6 +33,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 PYTHONPATH="$repo_root/python${PYTHONPATH:+:$PYTHONPATH}" python3 -m compileall -q python tests
 PYTHONPATH="$repo_root/python${PYTHONPATH:+:$PYTHONPATH}" python3 -m unittest discover -s tests -p 'test_*.py' -q
+python3 scripts/version-check.py --json >/dev/null
 if command -v node >/dev/null 2>&1; then
   node --check examples/hello-vanilla/bridge.js
   node --check examples/hello-vanilla/app.js
@@ -43,7 +44,6 @@ if command -v node >/dev/null 2>&1; then
   bash -n scripts/bench-cli.sh
   bash -n scripts/stress.sh
   bash -n scripts/release-check.sh
-  python3 scripts/version-check.py --json >/dev/null
   node tests/bridge.test.js
 else
   echo "node is not installed; JavaScript syntax checks were not run" >&2

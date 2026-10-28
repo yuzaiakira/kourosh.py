@@ -9,6 +9,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 $env:PYTHONPATH = "$RepoRoot/python;$env:PYTHONPATH"
 python -m compileall -q python tests
 python -m unittest discover -s tests -p "test_*.py" -q
+python scripts/version-check.py --json | Out-Null
 if (Get-Command node -ErrorAction SilentlyContinue) {
     node --check examples/hello-vanilla/bridge.js
     node --check examples/hello-vanilla/app.js
