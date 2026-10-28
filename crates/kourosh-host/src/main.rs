@@ -18,6 +18,7 @@ struct HostOptions {
     packaged_root: Option<std::path::PathBuf>,
     dev_url: Option<String>,
     trusted_origin: String,
+    identifier: String,
     title: String,
     width: u32,
     height: u32,
@@ -35,7 +36,7 @@ fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
     use tao::event::{Event, WindowEvent};
     use tao::event_loop::{ControlFlow, EventLoopBuilder};
     use tao::window::WindowBuilder;
-    use wry::{WebViewBuilder, WebViewBuilderExtWindows};
+    use wry::{WebContext, WebViewBuilder, WebViewBuilderExtWindows};
 
     enum UserEvent {
         Response(RpcResponse),
@@ -56,6 +57,8 @@ fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
         let search_path = std::env::join_paths([app_root, runtime_python])?;
         std::env::set_var("KOUROSH_PYTHON_PATH", search_path);
     }
+    let webview_data_directory = webview_user_data_directory(&options.identifier)?;
+    let mut web_context = WebContext::new(Some(webview_data_directory));
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
     let window = WindowBuilder::new()
@@ -94,7 +97,7 @@ fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "https://kourosh.app/index.html".to_owned());
     let navigation_origin = trusted_origin.clone();
     let ipc_origin = trusted_origin.clone();
-    let webview = WebViewBuilder::new()
+    let webview = WebViewBuilder::with_web_context(&mut web_context)
         .with_custom_protocol("kourosh".to_owned(), move |_webview_id, request| {
             custom_protocol_response(&static_root, request.uri().path())
         })
@@ -133,6 +136,9 @@ fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
         .build(&window)?;
 
     event_loop.run(move |event, _, control_flow| {
+        // Keep the context alive for the lifetime of the WebView. Its
+        // directory is under LOCALAPPDATA, never beside a read-only install.
+        let _web_context_guard = &web_context;
         *control_flow = ControlFlow::Wait;
         match event {
             Event::UserEvent(UserEvent::Response(response)) => {
@@ -221,6 +227,7 @@ fn parse_host_options() -> Result<HostOptions, Box<dyn std::error::Error>> {
     let mut frontend = None;
     let mut dev_url = None;
     let mut trusted_origin = kourosh_bridge::TRUSTED_ORIGIN.to_owned();
+    let mut identifier = "kourosh-dev".to_owned();
     let mut title = "Kourosh.py".to_owned();
     let mut width = 960;
     let mut height = 640;
@@ -243,6 +250,7 @@ fn parse_host_options() -> Result<HostOptions, Box<dyn std::error::Error>> {
                 dev_url = Some(value);
                 trusted_origin = origin;
             }
+            "--identifier" => identifier = next_argument("--identifier", &mut args)?,
             "--title" => title = next_argument("--title", &mut args)?,
             "--width" => width = next_argument("--width", &mut args)?.parse()?,
             "--height" => height = next_argument("--height", &mut args)?.parse()?,
@@ -262,6 +270,7 @@ fn parse_host_options() -> Result<HostOptions, Box<dyn std::error::Error>> {
             if let Some(packaged_height) = packaged.height {
                 height = packaged_height;
             }
+            identifier = packaged.identifier;
             packaged.root
         })
     } else {
@@ -269,6 +278,14 @@ fn parse_host_options() -> Result<HostOptions, Box<dyn std::error::Error>> {
     };
     if title.is_empty() || width == 0 || height == 0 || width > 16_384 || height > 16_384 {
         return Err("invalid window configuration".into());
+    }
+    if !valid_identifier(&identifier) {
+        return Err("invalid application identifier".into());
+    }
+    if identifier == "kourosh-dev" {
+        if let Some(app) = &app {
+            identifier = development_identifier(app);
+        }
     }
     if packaged_root.is_none() {
         if let (Some(app), Some(frontend)) = (&app, &frontend) {
@@ -284,6 +301,7 @@ fn parse_host_options() -> Result<HostOptions, Box<dyn std::error::Error>> {
         packaged_root,
         dev_url,
         trusted_origin,
+        identifier,
         title,
         width,
         height,
@@ -297,6 +315,7 @@ struct PackageManifest {
     frontend: String,
     python: String,
     runtime_python: String,
+    identifier: String,
     title: Option<String>,
     width: Option<u32>,
     height: Option<u32>,
@@ -310,6 +329,7 @@ struct PackagedPaths {
     title: Option<String>,
     width: Option<u32>,
     height: Option<u32>,
+    identifier: String,
 }
 
 #[cfg(windows)]
@@ -340,7 +360,68 @@ fn discover_packaged_paths() -> Result<Option<PackagedPaths>, Box<dyn std::error
         title: manifest.title,
         width: manifest.width,
         height: manifest.height,
+        identifier: manifest.identifier,
     }))
+}
+
+#[cfg(windows)]
+fn webview_user_data_directory(
+    identifier: &str,
+) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    use std::fs;
+    use std::path::PathBuf;
+
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("USERPROFILE")
+                .map(PathBuf::from)
+                .map(|profile| profile.join("AppData").join("Local"))
+        })
+        .ok_or(
+            "Windows LOCALAPPDATA/USERPROFILE is unavailable; cannot create WebView2 user data",
+        )?;
+    let vendor_root = base.join("Kourosh");
+    if vendor_root.is_symlink() {
+        return Err("WebView2 user-data root must not be a symlink".into());
+    }
+    fs::create_dir_all(&vendor_root)?;
+    let application_root = vendor_root.join(identifier);
+    if application_root.is_symlink() {
+        return Err("WebView2 application data directory must not be a symlink".into());
+    }
+    fs::create_dir_all(&application_root)?;
+    let canonical_base = base.canonicalize()?;
+    let canonical_application = application_root.canonicalize()?;
+    if !canonical_application.starts_with(&canonical_base) {
+        return Err("WebView2 user-data directory escaped LOCALAPPDATA".into());
+    }
+    Ok(canonical_application)
+}
+
+#[cfg(windows)]
+fn valid_identifier(value: &str) -> bool {
+    let mut characters = value.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    value.len() <= 128
+        && (first == '_' || first.is_ascii_alphabetic())
+        && characters.all(|character| {
+            character == '_'
+                || character == '-'
+                || character == '.'
+                || character.is_ascii_alphanumeric()
+        })
+}
+
+#[cfg(windows)]
+fn development_identifier(path: &std::path::Path) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    path.to_string_lossy().hash(&mut hasher);
+    format!("kourosh-dev-{:016x}", hasher.finish())
 }
 
 #[cfg(windows)]
@@ -375,7 +456,7 @@ fn validate_dev_url(url: &str) -> Result<String, Box<dyn std::error::Error>> {
     let port_number: u16 = port
         .parse()
         .map_err(|_| "development URL has an invalid port")?;
-    if port_number == 0 || path != "" && path != "index.html" {
+    if port_number == 0 || !path.is_empty() && path != "index.html" {
         return Err("development URL must contain only a loopback origin".into());
     }
     Ok(format!("{prefix}{port_number}"))

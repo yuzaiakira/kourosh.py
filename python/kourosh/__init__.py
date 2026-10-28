@@ -164,6 +164,8 @@ class App:
                     str(host),
                     "--app",
                     str(self.source_path),
+                    "--identifier",
+                    "kourosh-dev",
                     "--frontend",
                     str(frontend_path),
                     "--title",

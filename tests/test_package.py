@@ -12,6 +12,7 @@ from kourosh import App, KouroshError, __version__
 from kourosh.cli import (
     _stage_portable_distribution,
     _prepare_output_base,
+    _resolve_python_runtime,
     _inno_script,
     _write_build_manifest,
     _write_checksums,
@@ -103,6 +104,7 @@ class PackageTests(unittest.TestCase):
             runtime.mkdir()
             (runtime / "python312.dll").write_bytes(b"runtime")
             (runtime / "python312.zip").write_bytes(b"stdlib")
+            (runtime / "python312._pth").write_text("python312.zip\n.\n", encoding="utf-8")
             (runtime / "LICENSE.txt").write_text("CPython redistribution notice", encoding="utf-8")
             staged = Path(temporary) / "staged"
             _stage_portable_distribution(config, host, runtime, staged)
@@ -158,11 +160,22 @@ class PackageTests(unittest.TestCase):
             runtime.mkdir()
             (runtime / "python312.dll").write_bytes(b"runtime")
             (runtime / "python312.zip").write_bytes(b"stdlib")
+            (runtime / "python312._pth").write_text("python312.zip\n.\n", encoding="utf-8")
             (runtime / "LICENSE.txt").write_text("notice", encoding="utf-8")
             with self.assertRaises(RuntimeError):
                 _stage_portable_distribution(config, host, runtime, Path(temporary) / "staged")
             with self.assertRaises(RuntimeError):
                 _prepare_output_base(root, root / "unsafe-output")
+
+    def test_python_embedded_runtime_rejects_site_imports(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = Path(temporary)
+            (runtime / "python312.dll").write_bytes(b"runtime")
+            (runtime / "python312.zip").write_bytes(b"stdlib")
+            (runtime / "python312._pth").write_text("python312.zip\nimport site\n", encoding="utf-8")
+            (runtime / "LICENSE.txt").write_text("notice", encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "user-site"):
+                _resolve_python_runtime(runtime)
 
     def test_react_and_typescript_generators_are_self_contained(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -353,9 +353,20 @@ def _resolve_python_runtime(explicit: Path | None) -> Path:
         raise RuntimeError(f"Python runtime directory does not exist: {runtime}")
     dlls = list(runtime.glob("python3*.dll"))
     stdlib = list(runtime.glob("python*.zip"))
+    required_dll = runtime / "python312.dll"
+    required_stdlib = runtime / "python312.zip"
+    pth_file = runtime / "python312._pth"
     licenses = [path for path in runtime.iterdir() if path.is_file() and path.name.lower().startswith("license")]
-    if not dlls or not stdlib:
-        raise RuntimeError("Python runtime must contain python3*.dll and a python*.zip standard library")
+    if not dlls or not stdlib or not required_dll.is_file() or not required_stdlib.is_file():
+        raise RuntimeError("Python 3.12 x64 runtime must contain python312.dll and python312.zip")
+    if not pth_file.is_file():
+        raise RuntimeError("Python embeddable runtime must include python312._pth for import isolation")
+    for line in pth_file.read_text(encoding="utf-8").splitlines():
+        entry = line.strip()
+        if not entry or entry.startswith("#"):
+            continue
+        if entry.lower() == "import site" or Path(entry).is_absolute() or ".." in Path(entry).parts:
+            raise RuntimeError("python312._pth must not enable user-site or external import paths")
     if not licenses:
         raise RuntimeError("Python runtime must include its CPython license/redistribution notice")
     return runtime
@@ -599,7 +610,19 @@ def _launch_native_host(config: ProjectConfig, *, dev_url: str | None = None) ->
     framework_python = Path(__file__).resolve().parent.parent
     old_pythonpath = environment.get("PYTHONPATH")
     environment["PYTHONPATH"] = str(framework_python) + (os.pathsep + old_pythonpath if old_pythonpath else "")
-    command = [str(host), "--app", str(config.entrypoint), "--title", config.title, "--width", str(config.width), "--height", str(config.height)]
+    command = [
+        str(host),
+        "--app",
+        str(config.entrypoint),
+        "--identifier",
+        config.identifier,
+        "--title",
+        config.title,
+        "--width",
+        str(config.width),
+        "--height",
+        str(config.height),
+    ]
     command.extend(["--dev-url", dev_url] if dev_url else ["--frontend", str(config.frontend)])
     try:
         return subprocess.run(command, cwd=config.root, env=environment, check=False).returncode
