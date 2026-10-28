@@ -4,7 +4,7 @@
 //! made while holding the GIL, and the caller is expected to run this type from
 //! a worker (the bridge dispatcher does that for the native host).
 
-use kourosh_bridge::{BridgeError, Method, ValidatedRequest};
+use kourosh_bridge::{BridgeError, Method, ValidatedRequest, PROTOCOL_VERSION};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use serde_json::Value;
@@ -12,6 +12,7 @@ use std::fmt::{Display, Formatter};
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 const PYTHON_MODULE: &str = r#"
 def greet(name):
@@ -43,21 +44,44 @@ impl From<PyErr> for PythonError {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeCapabilities {
+    pub runtime_id: &'static str,
+    pub runtime_version: &'static str,
+    pub protocol_version: u8,
+    pub capabilities: Vec<&'static str>,
+    pub initialization_duration: Duration,
+}
+
+/// Narrow runtime contract used by the native host. Future adapters may
+/// implement the same request/response and lifecycle semantics without
+/// exposing their interpreter details to the host.
+pub trait RuntimeAdapter: Send + Sync {
+    fn capabilities(&self) -> RuntimeCapabilities;
+    fn methods(&self) -> &[String];
+    fn dispatch(&self, request: ValidatedRequest) -> Result<Value, BridgeError>;
+    fn shutdown(&self);
+    fn is_shutdown(&self) -> bool;
+}
+
 pub struct PythonRuntime {
     closed: AtomicBool,
     module: Py<PyModule>,
     app: Option<Py<PyAny>>,
     methods: Vec<String>,
+    initialization_duration: Duration,
 }
 
 impl PythonRuntime {
     pub fn new() -> Result<Self, PythonError> {
+        let started = Instant::now();
         let module = Python::with_gil(|py| load_module(py).map(Bound::unbind))?;
         Ok(Self {
             closed: AtomicBool::new(false),
             module,
             app: None,
             methods: vec!["greet".to_owned()],
+            initialization_duration: started.elapsed(),
         })
     }
 
@@ -65,6 +89,7 @@ impl PythonRuntime {
     /// an `app` object created by `kourosh.App`; its explicit registry is used
     /// as the native allowlist before any request reaches Python.
     pub fn new_with_app(path: &Path) -> Result<Self, PythonError> {
+        let started = Instant::now();
         let source = fs::read_to_string(path).map_err(|error| PythonError {
             code: "app_load_error",
             message: format!("unable to read application source: {error}"),
@@ -101,6 +126,7 @@ impl PythonRuntime {
                 module: module.unbind(),
                 app: Some(app.unbind()),
                 methods,
+                initialization_duration: started.elapsed(),
             })
         })
         .map_err(PythonError::from)
@@ -132,6 +158,16 @@ impl PythonRuntime {
 
     pub fn methods(&self) -> &[String] {
         &self.methods
+    }
+
+    pub fn capabilities(&self) -> RuntimeCapabilities {
+        RuntimeCapabilities {
+            runtime_id: "python",
+            runtime_version: env!("CARGO_PKG_VERSION"),
+            protocol_version: PROTOCOL_VERSION,
+            capabilities: vec!["embedded-cpython", "rpc-dispatch", "graceful-shutdown"],
+            initialization_duration: self.initialization_duration,
+        }
     }
 
     fn call_app(
@@ -194,6 +230,28 @@ impl PythonRuntime {
     }
 }
 
+impl RuntimeAdapter for PythonRuntime {
+    fn capabilities(&self) -> RuntimeCapabilities {
+        self.capabilities()
+    }
+
+    fn methods(&self) -> &[String] {
+        self.methods()
+    }
+
+    fn dispatch(&self, request: ValidatedRequest) -> Result<Value, BridgeError> {
+        self.call(request)
+    }
+
+    fn shutdown(&self) {
+        self.shutdown();
+    }
+
+    fn is_shutdown(&self) -> bool {
+        self.is_shutdown()
+    }
+}
+
 impl Drop for PythonRuntime {
     fn drop(&mut self) {
         self.shutdown();
@@ -241,6 +299,13 @@ mod tests {
     #[test]
     fn initializes_embedded_python_and_calls_greet() {
         let runtime = PythonRuntime::new().expect("Python should initialize");
+        let capabilities = runtime.capabilities();
+        assert_eq!(capabilities.runtime_id, "python");
+        assert_eq!(
+            capabilities.protocol_version,
+            kourosh_bridge::PROTOCOL_VERSION
+        );
+        assert!(capabilities.capabilities.contains(&"embedded-cpython"));
         assert_eq!(
             runtime.greet("Akira").unwrap(),
             serde_json::json!({"message":"Hello, Akira!"})
@@ -253,6 +318,17 @@ mod tests {
         let error = runtime.greet("").unwrap_err();
         assert_eq!(error.code, "python_error");
         assert!(error.message.contains("name must be a non-empty string"));
+    }
+
+    #[test]
+    fn reports_application_initialization_failures_without_leaking_runtime_state() {
+        let error = match PythonRuntime::new_with_app(std::path::Path::new(
+            "/definitely/missing/main.py",
+        )) {
+            Ok(_) => panic!("missing application should not initialize"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, "app_load_error");
     }
 
     #[test]

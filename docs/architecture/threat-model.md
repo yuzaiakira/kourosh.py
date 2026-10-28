@@ -35,3 +35,10 @@ WebView2 browser state is placed in a per-identifier WRY `WebContext` under
 executable directory is never used for writable browser state, so a read-only
 installation does not weaken isolation or force unrelated applications to
 share cookies and cache.
+
+Python plugins are trusted, application-bundled code inside the same CPython
+process. Registration is explicit, metadata is validated, and plugin methods
+still pass through the default-deny Rust registry. This model does not sandbox
+plugin code: plugins can access whatever the application itself can access.
+Kourosh.py therefore does not auto-discover external plugin files, load native
+libraries from renderer input, or provide a remote plugin marketplace.

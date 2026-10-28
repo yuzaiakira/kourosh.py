@@ -41,6 +41,7 @@ if command -v node >/dev/null 2>&1; then
   node --check packages/sdk/index.js
   node --check scripts/bench-sdk.mjs
   bash -n scripts/bench-cli.sh
+  bash -n scripts/stress.sh
   node tests/bridge.test.js
 else
   echo "node is not installed; JavaScript syntax checks were not run" >&2

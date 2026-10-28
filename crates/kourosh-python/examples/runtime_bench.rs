@@ -43,9 +43,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let startup = Instant::now();
     let runtime = Arc::new(PythonRuntime::new()?);
+    let capabilities = runtime.capabilities();
     println!(
         "python_runtime_startup_ms={:.3}",
         startup.elapsed().as_secs_f64() * 1000.0
+    );
+    println!(
+        "runtime_adapter={} protocol={} init_measurement_ms={:.3}",
+        capabilities.runtime_id,
+        capabilities.protocol_version,
+        capabilities.initialization_duration.as_secs_f64() * 1000.0
     );
 
     let runtime_for_dispatch = Arc::clone(&runtime);
@@ -98,6 +105,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         completed as f64 / elapsed
     );
 
+    let metrics = dispatcher.metrics();
+    println!("dispatcher_accepted={}", metrics.accepted);
+    println!("dispatcher_rejected={}", metrics.rejected);
+    println!("dispatcher_timeouts={}", metrics.timeouts);
+    println!("dispatcher_active={}", metrics.active);
+    println!("dispatcher_queued={}", metrics.queued);
     dispatcher.shutdown();
     runtime.shutdown();
     Ok(())

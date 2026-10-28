@@ -20,6 +20,64 @@ pub const MAX_REQUEST_ID_BYTES: usize = 128;
 pub const MAX_NAME_BYTES: usize = 256;
 pub const DEFAULT_QUEUE_CAPACITY: usize = 32;
 
+/// A cooperative cancellation signal for handlers that can safely poll it.
+/// It never interrupts or terminates a Rust or CPython thread.
+#[derive(Debug, Clone)]
+pub struct CancellationToken {
+    canceled: Arc<AtomicBool>,
+}
+
+impl CancellationToken {
+    fn new() -> Self {
+        Self {
+            canceled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn is_canceled(&self) -> bool {
+        self.canceled.load(Ordering::Acquire)
+    }
+
+    fn cancel(&self) {
+        self.canceled.store(true, Ordering::Release);
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DispatcherMetrics {
+    pub active: usize,
+    pub queued: usize,
+    pub accepted: usize,
+    pub rejected: usize,
+    pub completed: usize,
+    pub timeouts: usize,
+    pub canceled: usize,
+}
+
+struct MetricsCounters {
+    active: AtomicUsize,
+    queued: AtomicUsize,
+    accepted: AtomicUsize,
+    rejected: AtomicUsize,
+    completed: AtomicUsize,
+    timeouts: AtomicUsize,
+    canceled: AtomicUsize,
+}
+
+impl MetricsCounters {
+    fn snapshot(&self) -> DispatcherMetrics {
+        DispatcherMetrics {
+            active: self.active.load(Ordering::Acquire),
+            queued: self.queued.load(Ordering::Acquire),
+            accepted: self.accepted.load(Ordering::Acquire),
+            rejected: self.rejected.load(Ordering::Acquire),
+            completed: self.completed.load(Ordering::Acquire),
+            timeouts: self.timeouts.load(Ordering::Acquire),
+            canceled: self.canceled.load(Ordering::Acquire),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Method {
     Greet,
@@ -216,11 +274,15 @@ pub fn response_for_error(raw: &str, error: BridgeError) -> RpcResponse {
     RpcResponse::failure(request_id(raw), error)
 }
 
-type Handler = dyn Fn(ValidatedRequest) -> Result<Value, BridgeError> + Send + Sync + 'static;
+type CancellableHandler = dyn Fn(ValidatedRequest, CancellationToken) -> Result<Value, BridgeError>
+    + Send
+    + Sync
+    + 'static;
 
 struct Job {
     request: ValidatedRequest,
     timeout: Duration,
+    cancellation: CancellationToken,
     response: SyncSender<RpcResponse>,
 }
 
@@ -229,6 +291,7 @@ struct Job {
 pub struct AsyncDispatcher {
     sender: SyncSender<Job>,
     active: Arc<AtomicUsize>,
+    metrics: Arc<MetricsCounters>,
     closed: Arc<AtomicBool>,
     allowed_methods: Arc<Vec<String>>,
     builtin_greet: bool,
@@ -254,6 +317,23 @@ impl AsyncDispatcher {
         Self::new_with_methods_internal(queue_capacity, allowed_methods, false, handler)
     }
 
+    /// Construct a dispatcher whose handler can cooperatively observe timeout
+    /// and shutdown cancellation. Existing constructors remain source
+    /// compatible and simply ignore the token.
+    pub fn new_with_methods_cancellable<F>(
+        queue_capacity: usize,
+        allowed_methods: Vec<String>,
+        handler: F,
+    ) -> Self
+    where
+        F: Fn(ValidatedRequest, CancellationToken) -> Result<Value, BridgeError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self::new_with_methods_cancellable_internal(queue_capacity, allowed_methods, false, handler)
+    }
+
     fn new_with_methods_internal<F>(
         queue_capacity: usize,
         allowed_methods: Vec<String>,
@@ -263,23 +343,62 @@ impl AsyncDispatcher {
     where
         F: Fn(ValidatedRequest) -> Result<Value, BridgeError> + Send + Sync + 'static,
     {
+        Self::new_with_methods_cancellable_internal(
+            queue_capacity,
+            allowed_methods,
+            builtin_greet,
+            move |request, _cancellation| handler(request),
+        )
+    }
+
+    fn new_with_methods_cancellable_internal<F>(
+        queue_capacity: usize,
+        allowed_methods: Vec<String>,
+        builtin_greet: bool,
+        handler: F,
+    ) -> Self
+    where
+        F: Fn(ValidatedRequest, CancellationToken) -> Result<Value, BridgeError>
+            + Send
+            + Sync
+            + 'static,
+    {
         let queue_capacity = queue_capacity.max(1);
         let allowed_methods = Arc::new(allowed_methods);
         let (sender, receiver) = mpsc::sync_channel(queue_capacity);
         let active = Arc::new(AtomicUsize::new(0));
+        let metrics = Arc::new(MetricsCounters {
+            active: AtomicUsize::new(0),
+            queued: AtomicUsize::new(0),
+            accepted: AtomicUsize::new(0),
+            rejected: AtomicUsize::new(0),
+            completed: AtomicUsize::new(0),
+            timeouts: AtomicUsize::new(0),
+            canceled: AtomicUsize::new(0),
+        });
         let closed = Arc::new(AtomicBool::new(false));
-        let worker_handler: Arc<Handler> = Arc::new(handler);
+        let worker_handler: Arc<CancellableHandler> = Arc::new(handler);
         let worker_active = Arc::clone(&active);
+        let worker_metrics = Arc::clone(&metrics);
         let worker_closed = Arc::clone(&closed);
 
         thread::Builder::new()
             .name("kourosh-bridge".to_owned())
-            .spawn(move || worker_loop(receiver, worker_handler, worker_active, worker_closed))
+            .spawn(move || {
+                worker_loop(
+                    receiver,
+                    worker_handler,
+                    worker_active,
+                    worker_metrics,
+                    worker_closed,
+                )
+            })
             .expect("bridge worker thread must start");
 
         Self {
             sender,
             active,
+            metrics,
             closed,
             allowed_methods,
             builtin_greet,
@@ -294,9 +413,14 @@ impl AsyncDispatcher {
         timeout: Duration,
     ) -> Result<Receiver<RpcResponse>, BridgeError> {
         if self.closed.load(Ordering::Acquire) {
+            self.metrics.rejected.fetch_add(1, Ordering::AcqRel);
             return Err(BridgeError::new("shutdown", "the bridge is shut down"));
         }
-        self.submit_with_timeout(raw, origin, timeout)
+        let result = self.submit_with_timeout(raw, origin, timeout);
+        if result.is_err() {
+            self.metrics.rejected.fetch_add(1, Ordering::AcqRel);
+        }
+        result
     }
 
     fn submit_with_timeout(
@@ -326,16 +450,23 @@ impl AsyncDispatcher {
         let job = Job {
             request,
             timeout,
+            cancellation: CancellationToken::new(),
             response: response_tx,
         };
         match self.sender.try_send(job) {
-            Ok(()) => Ok(response_rx),
+            Ok(()) => {
+                self.metrics.accepted.fetch_add(1, Ordering::AcqRel);
+                self.metrics.queued.fetch_add(1, Ordering::AcqRel);
+                Ok(response_rx)
+            }
             Err(TrySendError::Full(_)) => {
                 self.active.fetch_sub(1, Ordering::AcqRel);
+                self.metrics.active.fetch_sub(1, Ordering::AcqRel);
                 Err(BridgeError::new("busy", "the bridge request queue is full"))
             }
             Err(TrySendError::Disconnected(_)) => {
                 self.active.fetch_sub(1, Ordering::AcqRel);
+                self.metrics.active.fetch_sub(1, Ordering::AcqRel);
                 Err(BridgeError::new(
                     "shutdown",
                     format!("request {id} was not accepted"),
@@ -356,7 +487,10 @@ impl AsyncDispatcher {
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ) {
-                Ok(_) => return true,
+                Ok(_) => {
+                    self.metrics.active.fetch_add(1, Ordering::AcqRel);
+                    return true;
+                }
                 Err(updated) => current = updated,
             }
         }
@@ -387,6 +521,10 @@ impl AsyncDispatcher {
     pub fn allowed_methods(&self) -> &[String] {
         self.allowed_methods.as_slice()
     }
+
+    pub fn metrics(&self) -> DispatcherMetrics {
+        self.metrics.snapshot()
+    }
 }
 
 impl Drop for AsyncDispatcher {
@@ -397,22 +535,26 @@ impl Drop for AsyncDispatcher {
 
 fn worker_loop(
     receiver: Receiver<Job>,
-    handler: Arc<Handler>,
+    handler: Arc<CancellableHandler>,
     active: Arc<AtomicUsize>,
+    metrics: Arc<MetricsCounters>,
     closed: Arc<AtomicBool>,
 ) {
     loop {
         let job = match receiver.recv_timeout(Duration::from_millis(50)) {
             Ok(job) => job,
             Err(mpsc::RecvTimeoutError::Timeout) if closed.load(Ordering::Acquire) => {
-                reject_queued(&receiver, &active);
+                reject_queued(&receiver, &active, &metrics);
                 break;
             }
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         };
+        metrics.queued.fetch_sub(1, Ordering::AcqRel);
         if closed.load(Ordering::Acquire) {
             active.fetch_sub(1, Ordering::AcqRel);
+            metrics.active.fetch_sub(1, Ordering::AcqRel);
+            metrics.canceled.fetch_add(1, Ordering::AcqRel);
             let _ = job.response.send(RpcResponse::failure(
                 Some(job.request.id),
                 BridgeError::new("shutdown", "the bridge is shut down"),
@@ -423,21 +565,49 @@ fn worker_loop(
         let (result_tx, result_rx) = mpsc::sync_channel(1);
         let request = job.request.clone();
         let handler = Arc::clone(&handler);
+        let cancellation = job.cancellation.clone();
         let active_for_job = Arc::clone(&active);
+        let metrics_for_job = Arc::clone(&metrics);
         thread::spawn(move || {
-            let result = handler(request);
+            let result = handler(request, cancellation);
             let _ = result_tx.send(result);
             active_for_job.fetch_sub(1, Ordering::AcqRel);
+            metrics_for_job.active.fetch_sub(1, Ordering::AcqRel);
         });
 
-        let response = wait_for_result(result_rx, job.request.id, job.timeout, &closed);
+        let response = wait_for_result(
+            result_rx,
+            job.request.id,
+            job.timeout,
+            &closed,
+            &job.cancellation,
+        );
+        if response
+            .error
+            .as_ref()
+            .is_some_and(|error| error.code == "timeout")
+        {
+            metrics.timeouts.fetch_add(1, Ordering::AcqRel);
+        }
+        if response
+            .error
+            .as_ref()
+            .is_some_and(|error| error.code == "shutdown")
+        {
+            metrics.canceled.fetch_add(1, Ordering::AcqRel);
+        }
+        metrics.completed.fetch_add(1, Ordering::AcqRel);
         let _ = job.response.send(response);
     }
 }
 
-fn reject_queued(receiver: &Receiver<Job>, active: &AtomicUsize) {
+fn reject_queued(receiver: &Receiver<Job>, active: &AtomicUsize, metrics: &MetricsCounters) {
     while let Ok(job) = receiver.try_recv() {
         active.fetch_sub(1, Ordering::AcqRel);
+        metrics.active.fetch_sub(1, Ordering::AcqRel);
+        metrics.queued.fetch_sub(1, Ordering::AcqRel);
+        metrics.canceled.fetch_add(1, Ordering::AcqRel);
+        metrics.completed.fetch_add(1, Ordering::AcqRel);
         let _ = job.response.send(RpcResponse::failure(
             Some(job.request.id),
             BridgeError::new("shutdown", "the bridge is shut down"),
@@ -450,10 +620,12 @@ fn wait_for_result(
     id: String,
     timeout: Duration,
     closed: &AtomicBool,
+    cancellation: &CancellationToken,
 ) -> RpcResponse {
     let deadline = Instant::now() + timeout;
     loop {
         if closed.load(Ordering::Acquire) {
+            cancellation.cancel();
             return RpcResponse::failure(
                 Some(id),
                 BridgeError::new("shutdown", "the bridge is shut down"),
@@ -461,6 +633,7 @@ fn wait_for_result(
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
+            cancellation.cancel();
             return RpcResponse::failure(
                 Some(id),
                 BridgeError::new("timeout", "the Python call exceeded its timeout"),
@@ -602,6 +775,41 @@ mod tests {
     }
 
     #[test]
+    fn signals_cooperative_cancellation_on_timeout_and_records_metrics() {
+        let observed = Arc::new(AtomicBool::new(false));
+        let observed_for_handler = Arc::clone(&observed);
+        let dispatcher = AsyncDispatcher::new_with_methods_cancellable(
+            2,
+            vec!["greet".to_owned()],
+            move |_request, cancellation| {
+                while !cancellation.is_canceled() {
+                    thread::sleep(Duration::from_millis(1));
+                }
+                observed_for_handler.store(true, Ordering::Release);
+                Ok(greet_result("canceled"))
+            },
+        );
+        let response = dispatcher.dispatch_raw(
+            &request("cancel-1", "Ada"),
+            TRUSTED_ORIGIN,
+            Duration::from_millis(5),
+        );
+        assert_eq!(response.error.unwrap().code, "timeout");
+        for _ in 0..100 {
+            if observed.load(Ordering::Acquire) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        assert!(observed.load(Ordering::Acquire));
+        let metrics = dispatcher.metrics();
+        assert_eq!(metrics.timeouts, 1);
+        assert_eq!(metrics.accepted, 1);
+        assert_eq!(metrics.completed, 1);
+        assert_eq!(metrics.active, 0);
+    }
+
+    #[test]
     fn handles_concurrent_invocations_without_crossing_responses() {
         let dispatcher = Arc::new(AsyncDispatcher::new(32, |request| {
             thread::sleep(Duration::from_millis(1));
@@ -709,5 +917,46 @@ mod tests {
                 .method,
             Method::Custom("greet".to_owned())
         );
+    }
+
+    #[test]
+    fn bounded_stress_completes_without_active_work_leaking() {
+        let samples = std::env::var("KOUROSH_STRESS_REQUESTS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(256);
+        let concurrency = std::env::var("KOUROSH_STRESS_CONCURRENCY")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(8)
+            .max(1);
+        let dispatcher = Arc::new(AsyncDispatcher::new(64, |request| {
+            Ok(greet_result(&request.name))
+        }));
+        let mut workers = Vec::new();
+        for worker_index in 0..concurrency {
+            let dispatcher = Arc::clone(&dispatcher);
+            let worker_samples =
+                samples / concurrency + usize::from(worker_index < samples % concurrency);
+            workers.push(thread::spawn(move || {
+                for request_index in 0..worker_samples {
+                    let id = format!("stress-{worker_index}-{request_index}");
+                    let response = dispatcher.dispatch_raw(
+                        &request(&id, "Stress"),
+                        TRUSTED_ORIGIN,
+                        Duration::from_secs(1),
+                    );
+                    assert!(response.ok);
+                }
+            }));
+        }
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        let metrics = dispatcher.metrics();
+        assert_eq!(metrics.accepted, samples);
+        assert_eq!(metrics.completed, samples);
+        assert_eq!(metrics.active, 0);
+        assert_eq!(metrics.queued, 0);
     }
 }

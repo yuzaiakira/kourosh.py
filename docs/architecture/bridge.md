@@ -21,12 +21,15 @@ envelope so the matching Promise is rejected instead of waiting for its timer.
 Messages without a valid ID cannot be correlated and are intentionally dropped
 by the browser helper after its bounded timeout.
 
-`AsyncDispatcher` uses a bounded synchronous queue and a worker thread. The
+`AsyncDispatcher` uses a bounded synchronous queue and a worker thread. It
+exposes low-overhead counters for active, queued, accepted, rejected,
+completed, timed-out, and cooperatively canceled requests; applications can
+sample them without a background monitoring service. The
 native IPC callback does not execute Python or wait on the GIL; it submits work
 and the event loop receives a user event when the result is ready. Calls have a
 deadline. A timed-out Python thread is allowed to finish cooperatively while
-its result is discarded; future cancellation tokens will be added before long
-running application work is exposed.
+its result is discarded. Handlers using the Rust-level cancellable constructor
+can poll a token; arbitrary Python threads are never forcibly terminated.
 
 The browser helper never evaluates response text. It matches IDs in a pending
 map and resolves or rejects a Promise from the structured response. It rejects

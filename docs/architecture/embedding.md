@@ -17,7 +17,10 @@ still exist. Redistribution of a private CPython build is handled by the
 Windows packaging pipeline, with clean-machine runtime validation still
 pending.
 
-An RPC timeout only bounds the caller's wait and response delivery. Python code
-already running on the worker may finish later; the runtime does not attempt to
-force-cancel a CPython thread. Applications that need cancellation should
-expose cooperative cancellation state in their own handler contract.
+An RPC timeout bounds the caller's wait and response delivery. The dispatcher
+now signals a cooperative `CancellationToken` on timeout or shutdown to
+handlers that explicitly accept that contract. The token is advisory: Python
+code already running on a worker may finish later, and Kourosh.py never
+force-cancels a CPython thread. The current Python SDK does not inject a token
+into arbitrary application handlers, so synchronous and async Python handlers
+must implement their own cooperative cancellation state if they need it.

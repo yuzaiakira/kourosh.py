@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, TypeVar, overload
 
@@ -21,6 +22,7 @@ _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 _MAX_TITLE_BYTES = 256
 _MAX_DIMENSION = 16_384
 _METHOD_RE = _NAME_RE
+_PLUGIN_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _F = TypeVar("_F", bound=Callable[..., Any])
 
 _LOGGER = logging.getLogger("kourosh")
@@ -58,6 +60,45 @@ class KouroshError(RuntimeError):
         super().__init__(message)
 
 
+@dataclass(frozen=True)
+class PluginMetadata:
+    """Compatibility and capability declaration for trusted app plugins."""
+
+    identifier: str
+    version: str
+    capabilities: tuple[str, ...] = ()
+    protocol: int = 1
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.identifier, str) or not _PLUGIN_ID_RE.fullmatch(self.identifier):
+            raise ValueError("plugin identifier must match [A-Za-z][A-Za-z0-9_.-]{0,127}")
+        if not isinstance(self.version, str) or not self.version.strip() or len(self.version) > 64:
+            raise ValueError("plugin version must be a non-empty string of at most 64 characters")
+        if not isinstance(self.protocol, int) or isinstance(self.protocol, bool) or self.protocol != 1:
+            raise ValueError("plugin protocol must be 1")
+        if not isinstance(self.capabilities, tuple) or any(
+            not isinstance(capability, str) or not _METHOD_RE.fullmatch(capability)
+            for capability in self.capabilities
+        ) or len(set(self.capabilities)) != len(self.capabilities):
+            raise ValueError("plugin capabilities must be unique RPC-style names")
+
+
+class Plugin:
+    """Base class for trusted, application-bundled Python extensions.
+
+    Plugins are regular in-process Python code. They are never discovered from
+    arbitrary filesystem paths and are not a security sandbox.
+    """
+
+    metadata: PluginMetadata
+
+    def initialize(self, app: "App") -> None:  # pragma: no cover - default hook
+        del app
+
+    def shutdown(self) -> None:  # pragma: no cover - default hook
+        pass
+
+
 class App:
     """Describe a desktop app and register its Python RPC methods."""
 
@@ -74,6 +115,7 @@ class App:
         self.width = width
         self.height = height
         self._methods: dict[str, Callable[..., Any]] = {}
+        self._plugins: dict[str, Plugin] = {}
         self._closed = False
         caller = inspect.currentframe()
         self.source_path = (
@@ -111,6 +153,43 @@ class App:
 
     def _method_names(self) -> list[str]:
         return list(self._methods)
+
+    def register_plugin(self, plugin: Plugin) -> Plugin:
+        """Initialize and retain one explicitly supplied trusted plugin."""
+
+        if self._closed:
+            raise KouroshError("app_closed", "cannot register plugins after app shutdown")
+        metadata = getattr(plugin, "metadata", None)
+        if not isinstance(metadata, PluginMetadata):
+            raise KouroshError("plugin_invalid", "plugin metadata is missing or invalid")
+        if metadata.identifier in self._plugins:
+            raise KouroshError("plugin_duplicate", "a plugin with this identifier is already registered")
+        initializer = getattr(plugin, "initialize", None)
+        if not callable(initializer):
+            raise KouroshError("plugin_invalid", "plugin initialize hook is not callable")
+        before_methods = set(self._methods)
+        try:
+            initializer(self)
+        except Exception as error:  # noqa: BLE001 - scrub trusted plugin errors at the API boundary.
+            for method_name in set(self._methods) - before_methods:
+                self._methods.pop(method_name, None)
+            _LOGGER.error("Plugin initialization failed for %s", metadata.identifier)
+            raise KouroshError("plugin_init", "plugin initialization failed") from error
+        self._plugins[metadata.identifier] = plugin
+        return plugin
+
+    def plugin_metadata(self) -> list[dict[str, Any]]:
+        """Return safe metadata for diagnostics and future capability discovery."""
+
+        return [
+            {
+                "identifier": metadata.identifier,
+                "version": metadata.version,
+                "capabilities": list(metadata.capabilities),
+                "protocol": metadata.protocol,
+            }
+            for metadata in (plugin.metadata for plugin in self._plugins.values())
+        ]
 
     @property
     def closed(self) -> bool:
@@ -171,6 +250,14 @@ class App:
     def close(self) -> None:
         """Prevent further registrations and release SDK-side state."""
 
+        if self._closed:
+            return
+        for identifier, plugin in reversed(list(self._plugins.items())):
+            try:
+                plugin.shutdown()
+            except Exception:  # noqa: BLE001 - cleanup continues deterministically.
+                _LOGGER.error("Plugin shutdown failed for %s", identifier)
+        self._plugins.clear()
         self._closed = True
 
     def run(self, frontend: str | Path | None = None) -> int | None:
@@ -296,4 +383,11 @@ def _find_host_binary() -> Path | None:
     return None
 
 
-__all__ = ["App", "KouroshError", "configure_logging", "__version__"]
+__all__ = [
+    "App",
+    "KouroshError",
+    "Plugin",
+    "PluginMetadata",
+    "configure_logging",
+    "__version__",
+]

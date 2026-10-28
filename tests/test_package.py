@@ -9,7 +9,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from kourosh import App, KouroshError, __version__
+from kourosh import App, KouroshError, Plugin, PluginMetadata, __version__
 from kourosh.cli import (
     _stage_portable_distribution,
     _prepare_output_base,
@@ -83,6 +83,55 @@ class PackageTests(unittest.TestCase):
         with self.assertRaises(Exception) as raised:
             app._dispatch("bad-name", "{}")
         self.assertEqual(raised.exception.code, "invalid_method")
+
+    def test_trusted_plugins_have_explicit_metadata_and_deterministic_cleanup(self) -> None:
+        events: list[str] = []
+
+        class ExamplePlugin(Plugin):
+            metadata = PluginMetadata("example.notes", "1.0", ("notes",))
+
+            def initialize(self, app: App) -> None:
+                events.append("init")
+
+                @app.expose(name="plugin_method")
+                def plugin_method() -> dict[str, bool]:
+                    return {"ok": True}
+
+            def shutdown(self) -> None:
+                events.append("shutdown")
+
+        app = App(title="Plugins")
+        plugin = app.register_plugin(ExamplePlugin())
+        self.assertIsNotNone(plugin)
+        self.assertEqual(app.plugin_metadata()[0]["identifier"], "example.notes")
+        self.assertEqual(app._dispatch("plugin_method", "{}"), {"ok": True})
+        with self.assertRaises(KouroshError) as duplicate:
+            app.register_plugin(ExamplePlugin())
+        self.assertEqual(duplicate.exception.code, "plugin_duplicate")
+        app.close()
+        app.close()
+        self.assertEqual(events, ["init", "shutdown"])
+
+    def test_plugin_registration_rolls_back_methods_on_initialization_failure(self) -> None:
+        class BrokenPlugin(Plugin):
+            metadata = PluginMetadata("broken", "1.0")
+
+            def initialize(self, app: App) -> None:
+                @app.expose
+                def leaked() -> None:
+                    return None
+
+                raise RuntimeError("broken plugin")
+
+        app = App(title="Broken plugin")
+        with self.assertRaises(KouroshError) as raised:
+            app.register_plugin(BrokenPlugin())
+        self.assertEqual(raised.exception.code, "plugin_init")
+        self.assertEqual(app._method_names(), [])
+        with self.assertRaises(ValueError):
+            PluginMetadata("bad id/with/path", "1.0")
+        with self.assertRaises(ValueError):
+            PluginMetadata("future", "1.0", protocol=2)
 
     def test_generated_project_is_valid_and_uses_sdk_registry(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -27,7 +27,7 @@ struct HostOptions {
 #[cfg(windows)]
 fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
     use kourosh_bridge::{response_for_error, AsyncDispatcher, BridgeError, RpcResponse};
-    use kourosh_python::PythonRuntime;
+    use kourosh_python::{PythonRuntime, RuntimeAdapter};
     use std::path::Path;
     use std::sync::Arc;
     use std::thread;
@@ -65,7 +65,7 @@ fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
         .with_title(&options.title)
         .with_inner_size(LogicalSize::new(options.width, options.height))
         .build(&event_loop)?;
-    let runtime = Arc::new(match options.app.as_deref() {
+    let runtime: Arc<dyn RuntimeAdapter> = Arc::new(match options.app.as_deref() {
         Some(path) => PythonRuntime::new_with_app(path)?,
         None => PythonRuntime::new()?,
     });
@@ -74,7 +74,7 @@ fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
     let dispatcher = Arc::new(AsyncDispatcher::new_with_methods(
         32,
         allowed_methods,
-        move |request| runtime_for_dispatch.call(request),
+        move |request| runtime_for_dispatch.dispatch(request),
     ));
     let dispatcher_for_ipc = Arc::clone(&dispatcher);
     let dispatcher_for_lifecycle = Arc::clone(&dispatcher);
