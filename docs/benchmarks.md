@@ -27,13 +27,13 @@ measured:
 
 | Measurement | Result |
 | --- | ---: |
-| Python runtime startup | 12.941 ms |
-| RPC round trip p50 | 128 µs |
-| RPC round trip p95 | 647 µs |
-| RPC round trip p99 | 1,018 µs |
+| Python runtime startup | 13.877 ms |
+| RPC round trip p50 | 98 µs |
+| RPC round trip p95 | 396 µs |
+| RPC round trip p99 | 523 µs |
 | Concurrent completed requests | 100 |
-| Concurrent elapsed time | 21.218 ms |
-| Concurrent throughput | 4,713.072 requests/s |
+| Concurrent elapsed time | 13.225 ms |
+| Concurrent throughput | 7,561.413 requests/s |
 
 The Phase 1 run with the same parameters was 17.357 ms startup, 72/283/764
 µs p50/p95/p99, and 6,593.768 requests/s. The Phase 2 run adds the native
