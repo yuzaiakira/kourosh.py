@@ -53,6 +53,8 @@ user-data SQLite database. Its typecheck, production Vite build, and Python
 CRUD tests run locally; its native Windows validation uses
 `scripts/package-smoke.ps1`.
 
+For a reproducible cloud setup, see [docs/cloud-onboarding.md](docs/cloud-onboarding.md).
+
 See [docs/javascript-sdk.md](docs/javascript-sdk.md),
 [docs/react-quickstart.md](docs/react-quickstart.md), and
 [docs/vite-development.md](docs/vite-development.md) for the frontend
