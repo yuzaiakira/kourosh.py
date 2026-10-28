@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/kourosh-bridge",
+    "crates/kourosh-python",
+    "crates/kourosh-host",
+]
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"
+rust-version = "1.76"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

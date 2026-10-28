@@ -1,0 +1,10 @@
+[package]
+name = "kourosh-python"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kourosh-bridge = { path = "../kourosh-bridge" }
+pyo3 = { version = "0.22.6", features = ["auto-initialize"] }
+serde_json.workspace = true

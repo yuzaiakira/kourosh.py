@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none';">
+    <title>Kourosh.py bridge demo</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <main>
+      <h1>Kourosh.py</h1>
+      <p>Python owns the greeting; this page owns the presentation.</p>
+      <form id="greet-form">
+        <label for="name">Name</label>
+        <input id="name" name="name" value="Akira" maxlength="256" autocomplete="off">
+        <button type="submit">Greet from Python</button>
+      </form>
+      <output id="result" aria-live="polite"></output>
+    </main>
+    <script src="bridge.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

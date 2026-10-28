@@ -1,0 +1,49 @@
+(() => {
+  "use strict";
+  const MAX_REQUEST_BYTES = 64 * 1024;
+  const DEFAULT_TIMEOUT_MS = 5000;
+  const pending = new Map();
+  let sequence = 0;
+
+  function nextId() {
+    sequence += 1;
+    return `js-${Date.now().toString(36)}-${sequence.toString(36)}`;
+  }
+
+  window.__kouroshReceive = (response) => {
+    if (!response || typeof response.id !== "string") return;
+    const call = pending.get(response.id);
+    if (!call) return;
+    pending.delete(response.id);
+    clearTimeout(call.timer);
+    if (response.ok === true) call.resolve(response.result);
+    else call.reject(response.error || { code: "unknown_error", message: "bridge call failed" });
+  };
+
+  window.kourosh = Object.freeze({
+    invoke(method, args, options = {}) {
+      if (typeof method !== "string" || !method) {
+        return Promise.reject({ code: "invalid_method", message: "method must be a non-empty string" });
+      }
+      const id = nextId();
+      const raw = JSON.stringify({ id, method, args });
+      if (new TextEncoder().encode(raw).byteLength > MAX_REQUEST_BYTES) {
+        return Promise.reject({ code: "request_too_large", message: "request exceeds the bridge limit" });
+      }
+      if (!window.ipc || typeof window.ipc.postMessage !== "function") {
+        return Promise.reject({ code: "bridge_unavailable", message: "the native host IPC channel is unavailable" });
+      }
+      const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+        ? Math.min(options.timeoutMs, DEFAULT_TIMEOUT_MS)
+        : DEFAULT_TIMEOUT_MS;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          pending.delete(id);
+          reject({ code: "timeout", message: "the bridge call timed out" });
+        }, timeoutMs);
+        pending.set(id, { resolve, reject, timer });
+        window.ipc.postMessage(raw);
+      });
+    },
+  });
+})();
