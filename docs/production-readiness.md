@@ -11,6 +11,10 @@
 | Clean-machine Python/Node independence | Not verified | Windows copied-package smoke required |
 | Installer installation/uninstall | Not verified | Requires Windows and Inno Setup |
 | Windows startup/memory/RPC measurements | Tooling implemented; measurements pending | `scripts/bench.ps1` |
+| Python/CLI API stabilization | Implemented and automatically tested | async dispatch, JSON contract tests, `kourosh doctor --json` |
+| JavaScript/TypeScript protocol v1 | Implemented and automatically tested | Rust validator, SDK, concurrent and malformed-response tests |
+| Structured diagnostics and troubleshooting | Implemented and documented | `configure_logging`, doctor schema, troubleshooting guide |
+| Linux performance regression baseline | Measured | `scripts/bench.sh`, `scripts/bench-cli.sh`, frontend and SDK benchmarks |
 | Code signing and public release | Planned | No signing keys or service are embedded |
 
 Phase 4B remains pending until the Windows rows are executed and recorded.
