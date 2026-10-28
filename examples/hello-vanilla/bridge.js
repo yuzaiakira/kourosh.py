@@ -28,6 +28,14 @@
     return normalized;
   }
 
+  function assertJsonValue(_key, value) {
+    if (typeof value === "undefined" || typeof value === "function" || typeof value === "symbol" || typeof value === "bigint") {
+      throw new TypeError("value is not JSON serializable");
+    }
+    if (typeof value === "number" && !Number.isFinite(value)) throw new TypeError("number must be finite");
+    return value;
+  }
+
   window.__kouroshReceive = (response) => {
     if (!response || typeof response.id !== "string") return;
     const call = pending.get(response.id);
@@ -73,7 +81,7 @@
       const id = nextId();
       let raw;
       try {
-        raw = JSON.stringify({ protocol: PROTOCOL_VERSION, id, method, args });
+        raw = JSON.stringify({ protocol: PROTOCOL_VERSION, id, method, args }, assertJsonValue);
       } catch (_error) {
         return Promise.reject({ code: "invalid_args", message: "args must be JSON serializable" });
       }

@@ -853,6 +853,11 @@ def _bridge_file() -> str:
     if (Object.hasOwn(error, "details")) normalized.details = error.details;
     return normalized;
   };
+  const assertJsonValue = (_key, value) => {
+    if (typeof value === "undefined" || typeof value === "function" || typeof value === "symbol" || typeof value === "bigint") throw new TypeError("value is not JSON serializable");
+    if (typeof value === "number" && !Number.isFinite(value)) throw new TypeError("number must be finite");
+    return value;
+  };
   window.__kouroshReceive = (response) => {
     if (!response || typeof response.id !== "string") return;
     const call = pending.get(response.id);
@@ -876,7 +881,7 @@ def _bridge_file() -> str:
     if (pending.size >= MAX_PENDING_REQUESTS) return Promise.reject({ code: "busy", message: "too many bridge calls are in flight" });
     const id = nextId();
     let raw;
-    try { raw = JSON.stringify({ protocol: PROTOCOL_VERSION, id, method, args }); } catch (_error) { return Promise.reject({ code: "invalid_args", message: "args must be JSON serializable" }); }
+    try { raw = JSON.stringify({ protocol: PROTOCOL_VERSION, id, method, args }, assertJsonValue); } catch (_error) { return Promise.reject({ code: "invalid_args", message: "args must be JSON serializable" }); }
     if (typeof raw !== "string" || new TextEncoder().encode(raw).byteLength > MAX_REQUEST_BYTES) return Promise.reject({ code: "request_too_large", message: "request exceeds the bridge limit" });
     if (!window.ipc || typeof window.ipc.postMessage !== "function") return Promise.reject({ code: "bridge_unavailable", message: "the native host IPC channel is unavailable" });
     const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? Math.min(Math.max(options.timeoutMs, 1), DEFAULT_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS;

@@ -82,6 +82,8 @@ test("rejects invalid methods, arguments, options, and malformed responses", asy
   const window = createBridge(() => {});
   await assert.rejects(window.kourosh.invoke("read-file", {}), (error) => error.code === "invalid_method");
   await assert.rejects(window.kourosh.invoke("greet", []), (error) => error.code === "invalid_args");
+  await assert.rejects(window.kourosh.invoke("greet", { value: undefined }), (error) => error.code === "invalid_args");
+  await assert.rejects(window.kourosh.invoke("greet", { value: Number.NaN }), (error) => error.code === "invalid_args");
   await assert.rejects(window.kourosh.invoke("greet", {}, null), (error) => error.code === "invalid_options");
 
   let request;
@@ -116,6 +118,7 @@ test("validates the framework-independent SDK before using the bridge", async ()
   globalThis.kourosh = { invoke: async () => ({ ok: true }) };
   await assert.rejects(invoke("bad-name", {}), (error) => error.code === "invalid_method");
   await assert.rejects(invoke("greet", []), (error) => error.code === "invalid_args");
+  await assert.rejects(invoke("greet", { value: BigInt(1) }), (error) => error.code === "invalid_args");
   globalThis.kourosh = previous;
 });
 

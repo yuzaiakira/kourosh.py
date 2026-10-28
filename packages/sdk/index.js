@@ -28,6 +28,16 @@ function invalidArgument(code, message) {
   throw new KouroshError({ code, message });
 }
 
+function assertJsonValue(_key, value) {
+  if (typeof value === "undefined" || typeof value === "function" || typeof value === "symbol" || typeof value === "bigint") {
+    throw new TypeError("value is not JSON serializable");
+  }
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    throw new TypeError("number must be finite");
+  }
+  return value;
+}
+
 export async function invoke(method, args, options) {
   if (typeof method !== "string" || !METHOD_PATTERN.test(method)) {
     invalidArgument("invalid_method", "method must match [A-Za-z_][A-Za-z0-9_]{0,63}");
@@ -36,7 +46,7 @@ export async function invoke(method, args, options) {
     invalidArgument("invalid_args", "args must be a JSON object");
   }
   try {
-    JSON.stringify(args);
+    JSON.stringify(args, assertJsonValue);
   } catch (_error) {
     invalidArgument("invalid_args", "args must be JSON serializable");
   }
