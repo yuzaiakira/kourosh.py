@@ -8,6 +8,7 @@ if [[ -x /workspace/.cargo/bin/cargo ]]; then
   export PATH="/workspace/.cargo/bin:$PATH"
   export RUSTUP_HOME="${RUSTUP_HOME:-/workspace/.rustup}"
   export CARGO_HOME="${CARGO_HOME:-/workspace/.cargo}"
+  export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-stable}"
 fi
 command -v cargo >/dev/null || { echo "cargo is required" >&2; exit 1; }
 

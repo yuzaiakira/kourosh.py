@@ -44,6 +44,31 @@ Host startup and idle memory were not measured because the Linux host
 intentionally exits with a WebView2-required message. These values are one
 run on this cloud machine, not Windows claims or product guarantees.
 
+## Phase 6 cloud measurement
+
+On 2026-10-28, the same Linux cloud machine (Linux 6.18.55 x86_64, Intel Xeon
+Platinum 8573C, 5 visible CPUs, Python 3.12.14, Rust 1.99.1, Node.js 24.19.0,
+npm 11.9.0) produced the following single-run measurements. The Rust values
+used the release benchmark with 100 samples and 8 workers; the other values
+used the commands named below.
+
+| Measurement | Result |
+| --- | ---: |
+| Embedded Python startup | 8.268 ms |
+| RPC round trip p50 / p95 / p99 | 83 / 229 / 443 µs |
+| Concurrent throughput | 10,308.078 requests/s |
+| SDK wrapper overhead (`node scripts/bench-sdk.mjs`) | 1.372 µs/call |
+| CLI `--version` startup | 151 ms |
+| CLI `doctor --json` startup | 140 ms |
+| Notes Vite production build | 1,452 ms |
+| Notes `dist/` size | 149,903 bytes |
+| Notes Vite readiness | 498 ms |
+
+The Vite readiness command required the cloud command approval path because
+the default sandbox denied loopback socket binding. The build itself completed
+inside the default sandbox. No WebView2 startup, GUI interaction, Windows
+working-set, or idle-memory value was measured.
+
 ## Phase 3 frontend measurements
 
 On the same cloud runtime, a generated React JavaScript project was installed
@@ -84,3 +109,17 @@ process-tree and WebView2 working set, observed process startup, an idle CPU
 sample, and shutdown duration. It labels visible-window timing as manual and
 keeps internal RPC measurements separate from full WebView2 interaction. Do
 not commit the JSON output when it contains machine-specific information.
+
+## Phase 6 Linux regression checks
+
+The Phase 6 developer workflow adds `scripts/bench-cli.sh`, which reports
+wall-clock startup for `kourosh --version` and `kourosh doctor --json` in fresh
+Python processes. `node scripts/bench-sdk.mjs` remains the SDK wrapper measure,
+and `scripts/bench-frontend.sh examples/notes-react-ts` measures the real
+React/TypeScript production build. These measurements exclude Windows GUI
+startup and WebView2 memory, which remain platform-gated.
+
+Run the tools from the repository root and record their output with the commit
+SHA, OS/kernel, CPU, Python, Node, Rust profile, sample count, and concurrency.
+Compare only runs made with the same methodology; a changed machine or build
+profile is a new baseline rather than evidence of a regression.

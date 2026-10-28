@@ -56,7 +56,9 @@ CRUD tests run locally; its native Windows validation uses
 See [docs/javascript-sdk.md](docs/javascript-sdk.md),
 [docs/react-quickstart.md](docs/react-quickstart.md), and
 [docs/vite-development.md](docs/vite-development.md) for the frontend
-workflow. Read [docs/windows-build.md](docs/windows-build.md),
+workflow. Read [docs/cli.md](docs/cli.md) for command reference and
+[docs/troubleshooting.md](docs/troubleshooting.md) for structured diagnostics.
+Read [docs/windows-build.md](docs/windows-build.md),
 [docs/python-runtime.md](docs/python-runtime.md), and
 [docs/portable-distribution.md](docs/portable-distribution.md) before making a
 Windows artifact.

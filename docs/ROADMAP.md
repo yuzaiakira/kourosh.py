@@ -82,3 +82,23 @@ dependency audits, and clean-VM verification are next release tasks.
 
 Phase 5A remains pending for clean Windows execution, installer validation,
 and measured production startup/memory/RPC evidence.
+
+## Phase 6 — developer experience and API stabilization (implementation in progress; cloud checks active)
+
+- Python dispatch now supports synchronous and asynchronous handlers from both
+  normal and already-running event-loop callers, separates argument binding
+  errors from handler failures, and reports non-JSON returns as
+  `serialization_error`.
+- `kourosh doctor --json` emits a versioned capability report with available,
+  missing, unsupported, and failure categories. The CLI supports the
+  `--template react-ts` generator alias and cleans up Vite process groups.
+- Browser and TypeScript SDKs validate method/argument contracts locally,
+  preserve structured error metadata, emit bridge protocol version 1, and
+  reject malformed responses and stale renderer calls.
+- Documentation covers protocol compatibility, diagnostics, CLI behavior,
+  troubleshooting, and Linux-only performance methodology.
+
+Remaining Phase 6 work is regression measurement on the current cloud machine,
+broader generated-app integration coverage, and final API documentation review.
+Real Windows GUI behavior is intentionally deferred to the platform-validation
+phase; it must not be marked verified from Linux.

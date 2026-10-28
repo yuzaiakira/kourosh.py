@@ -8,6 +8,7 @@ if [[ -x /workspace/.cargo/bin/cargo ]]; then
   export PATH="/workspace/.cargo/bin:$PATH"
   export RUSTUP_HOME="${RUSTUP_HOME:-/workspace/.rustup}"
   export CARGO_HOME="${CARGO_HOME:-/workspace/.cargo}"
+  export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-stable}"
 fi
 command -v cargo >/dev/null || { echo "cargo is required" >&2; exit 1; }
 
@@ -39,6 +40,7 @@ if command -v node >/dev/null 2>&1; then
   node --check packages/sdk/kourosh.js
   node --check packages/sdk/index.js
   node --check scripts/bench-sdk.mjs
+  bash -n scripts/bench-cli.sh
   node tests/bridge.test.js
 else
   echo "node is not installed; JavaScript syntax checks were not run" >&2
