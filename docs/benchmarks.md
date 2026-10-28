@@ -1,11 +1,22 @@
 # Local runtime benchmarks
 
 Run `scripts/bench.sh` on Linux/macOS or `scripts/bench.ps1` on Windows. The
-Rust benchmark initializes embedded CPython, measures `greet` RPC round trips,
-and drives the bounded dispatcher from multiple threads. It prints p50/p95/p99
-latency in microseconds, interpreter startup time, completed request count,
-elapsed time, and throughput. `KOUROSH_BENCH_SAMPLES` and
-`KOUROSH_BENCH_CONCURRENCY` control the sample count and worker count.
+Rust benchmark initializes embedded CPython, warms the bounded dispatcher,
+measures `greet` RPC round trips, and drives it from multiple threads. It prints
+p50/p95/p99 latency in microseconds, interpreter startup time, completed
+request count, elapsed time, throughput, and a machine-readable JSON report.
+`KOUROSH_BENCH_SAMPLES`, `KOUROSH_BENCH_CONCURRENCY`, and
+`KOUROSH_BENCH_WARMUP` control the workload. `scripts/bench.sh` runs both
+instrumentation modes by default and writes reports under `/tmp/kourosh-bench`;
+set `KOUROSH_BENCH_COMPARE_METRICS=0` to run only the instrumented path.
+
+Each report records the commit SHA, OS/architecture, CPU model where Linux
+exposes one, Rust/Python versions supplied by the script, build profile, sample
+count, concurrency, warmup, latency percentiles, throughput, dispatcher
+counters, and resource samples. The resource samples include RSS, peak RSS,
+file descriptors, thread count, active/queued requests, and the active Python
+worker estimate. Linux values come from `/proc`; unsupported platform fields
+are `null`.
 
 The Windows script also starts the release host, observes process startup and
 working-set memory after two seconds, and closes the window. Those host values
@@ -140,3 +151,30 @@ optimization.
 test asserted that active and queued work returned to zero. The stress test is
 finite and component-scoped. It does not measure Windows WebView2 memory,
 window responsiveness, or arbitrary Python thread termination.
+
+## Phase 8A comparable cloud measurement
+
+The Phase 6 and Phase 7 figures above were each single runs with different
+warmup and scheduling conditions. A controlled three-run comparison on this
+same Linux host used release builds, 300 latency samples, eight workers, and
+the same Rust/Python toolchain. Phase 6 throughput was 3,938–8,199 requests/s;
+Phase 7 was 7,144–9,887 requests/s. Latency ranges overlapped, so these runs do
+not establish a Phase 7 regression. CPU scheduling and process startup variance
+are large enough that a benchmark decision needs repeated reports rather than
+one observed number.
+
+The new standardized report was then run with 100 samples, 20 warmup calls,
+and eight workers on commit `e85bf14` before the reporting changes were
+committed:
+
+| Mode | Startup | p50 / p95 / p99 | Throughput | RSS after init → load peak → cleanup | FDs | Threads after init → load → cleanup |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Metrics enabled | 9.701 ms | 92 / 228 / 319 µs | 8,793.509 req/s | 10.80 → 11.08 → 11.08 MiB | 4 | 2 → 10 → 2 |
+| Metrics disabled | 9.263 ms | 107 / 557 / 885 µs | 9,159.526 req/s | 10.78 → 11.07 → 11.07 MiB | 4 | 2 → 8 → 2 |
+
+These are one run per mode on the named cloud machine and are not a claim that
+metrics always reduce throughput; the disabled path is a diagnostic comparison
+only. The stable fd count and returned active/queued counters are cleanup
+evidence. RSS retention is allocator behavior until a repeated process-level
+study shows otherwise. Windows WebView2 memory, UI responsiveness, and host
+startup remain unmeasured.

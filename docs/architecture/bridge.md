@@ -24,12 +24,21 @@ by the browser helper after its bounded timeout.
 `AsyncDispatcher` uses a bounded synchronous queue and a worker thread. It
 exposes low-overhead counters for active, queued, accepted, rejected,
 completed, timed-out, and cooperatively canceled requests; applications can
-sample them without a background monitoring service. The
+sample them without a background monitoring service. Benchmark-only
+instrumentation-disabled construction preserves scheduling while omitting
+diagnostic counter atomics, so its cost can be compared without weakening the
+production default. The
 native IPC callback does not execute Python or wait on the GIL; it submits work
 and the event loop receives a user event when the result is ready. Calls have a
 deadline. A timed-out Python thread is allowed to finish cooperatively while
-its result is discarded. Handlers using the Rust-level cancellable constructor
-can poll a token; arbitrary Python threads are never forcibly terminated.
+its result is discarded. Python handlers opt in by declaring a `cancellation`
+keyword and can poll `is_canceled()` or `is_cancelled()`; arbitrary Python
+threads are never forcibly terminated and side effects are not rolled back.
+
+The local benchmark samples Linux `/proc` RSS, peak RSS, file descriptors, and
+thread count alongside dispatcher active/queued values. Those samples describe
+the host process; WebView2 child-process memory still requires a real Windows
+measurement.
 
 The browser helper never evaluates response text. It matches IDs in a pending
 map and resolves or rejects a Promise from the structured response. It rejects

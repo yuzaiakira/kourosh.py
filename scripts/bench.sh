@@ -26,8 +26,28 @@ done
 
 echo "Building the release runtime benchmark..."
 cargo build --release -p kourosh-python --example runtime_bench
-echo "Measured embedded-Python RPC benchmark (set KOUROSH_BENCH_SAMPLES and KOUROSH_BENCH_CONCURRENCY to repeat):"
-target/release/examples/runtime_bench
+
+report_dir="${KOUROSH_BENCH_REPORT_DIR:-/tmp/kourosh-bench}"
+mkdir -p "$report_dir"
+commit="$(git rev-parse HEAD)"
+rust_version="$(rustc --version)"
+python_version="$(python3 --version 2>&1)"
+run_benchmark() {
+  local metrics_mode="$1"
+  local report_path="$report_dir/${metrics_mode}-${commit}.json"
+  echo "Measured embedded-Python RPC benchmark: metrics=$metrics_mode report=$report_path"
+  KOUROSH_BENCH_METRICS="$metrics_mode" \
+  KOUROSH_BENCH_REPORT="$report_path" \
+  KOUROSH_BENCH_COMMIT="$commit" \
+  KOUROSH_RUST_VERSION="$rust_version" \
+  KOUROSH_PYTHON_VERSION="$python_version" \
+  target/release/examples/runtime_bench
+}
+
+run_benchmark enabled
+if [[ "${KOUROSH_BENCH_COMPARE_METRICS:-1}" != "0" ]]; then
+  run_benchmark disabled
+fi
 
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)

@@ -18,9 +18,10 @@ Windows packaging pipeline, with clean-machine runtime validation still
 pending.
 
 An RPC timeout bounds the caller's wait and response delivery. The dispatcher
-now signals a cooperative `CancellationToken` on timeout or shutdown to
-handlers that explicitly accept that contract. The token is advisory: Python
-code already running on a worker may finish later, and Kourosh.py never
-force-cancels a CPython thread. The current Python SDK does not inject a token
-into arbitrary application handlers, so synchronous and async Python handlers
-must implement their own cooperative cancellation state if they need it.
+now signals a cooperative `CancellationToken` on timeout or shutdown. A
+Python handler opts in by declaring a keyword parameter named `cancellation`;
+the embedded runtime injects a token exposing both `is_canceled()` and
+`is_cancelled()`. The token is advisory: Python code already running on a
+worker may finish later, and Kourosh.py never force-cancels a CPython thread.
+Cancellation does not roll back handler side effects. Legacy handlers that do
+not declare the parameter keep their existing call signature.

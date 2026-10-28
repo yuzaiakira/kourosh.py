@@ -10,6 +10,9 @@ small:
   deny validator.
 - `dispatch(request)` accepts a validated protocol request and returns a JSON
   result or a scrubbed `BridgeError`.
+- `dispatch_with_cancellation(request, token)` is the opt-in cooperative path;
+  the Python adapter injects the token only into handlers that declare the
+  reserved `cancellation` keyword.
 - `shutdown()` and `is_shutdown()` define deterministic ownership of runtime
   work without calling unsafe CPython finalization.
 
@@ -19,6 +22,11 @@ making the host know how its interpreter initializes or acquires its execution
 lock. The trait is a source-level Rust contract, not a stable dynamic ABI;
 future adapters must be compiled against the workspace and preserve protocol
 version 1 semantics.
+
+Cancellation is advisory across every adapter. A timeout or window close
+signals the token and rejects the browser response, but an already-running
+handler is allowed to finish and may have performed side effects. Adapters
+must never terminate interpreter threads forcibly.
 
 Adapter initialization occurs before the WebView is built. If application
 loading or registry validation fails, the host returns the structured startup

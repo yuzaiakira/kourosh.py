@@ -427,6 +427,28 @@ impl AsyncDispatcher {
         )
     }
 
+    /// Built-in `greet` variant of the cancellable constructor, retained for
+    /// the standalone runtime benchmark and the minimal proof of concept.
+    pub fn new_cancellable_with_metrics<F>(
+        queue_capacity: usize,
+        metrics_mode: MetricsMode,
+        handler: F,
+    ) -> Self
+    where
+        F: Fn(ValidatedRequest, CancellationToken) -> Result<Value, BridgeError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self::new_with_methods_cancellable_internal(
+            queue_capacity,
+            vec!["greet".to_owned()],
+            true,
+            metrics_mode,
+            handler,
+        )
+    }
+
     /// Construct a dispatcher with the same bounded scheduling semantics but
     /// without diagnostic counter atomics. This is intended for controlled
     /// benchmark comparisons, not for production observability.
@@ -655,10 +677,18 @@ impl AsyncDispatcher {
         self.metrics.snapshot()
     }
 
+    pub fn active_requests(&self) -> usize {
+        self.active.load(Ordering::Acquire)
+    }
+
+    pub fn queued_requests(&self) -> usize {
+        self.queued.load(Ordering::Acquire)
+    }
+
     pub fn resource_snapshot(&self, python_workers: usize) -> ResourceSnapshot {
         ResourceSnapshot::capture(
-            self.active.load(Ordering::Acquire),
-            self.queued.load(Ordering::Acquire),
+            self.active_requests(),
+            self.queued_requests(),
             python_workers,
         )
     }
@@ -1138,5 +1168,64 @@ mod tests {
             assert!(resources.file_descriptors.is_some());
             assert!(resources.threads.is_some());
         }
+    }
+
+    #[test]
+    fn bounded_soak_handles_bursts_and_cleans_up_after_shutdown() {
+        let duration_ms = std::env::var("KOUROSH_SOAK_DURATION_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(1_000)
+            .min(300_000);
+        let concurrency = std::env::var("KOUROSH_SOAK_CONCURRENCY")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(8)
+            .clamp(1, 64);
+        let dispatcher = Arc::new(AsyncDispatcher::new(4, |_request| {
+            thread::sleep(Duration::from_micros(100));
+            Ok(greet_result("soak"))
+        }));
+        let deadline = Instant::now() + Duration::from_millis(duration_ms);
+        let successes = Arc::new(AtomicUsize::new(0));
+        let rejected = Arc::new(AtomicUsize::new(0));
+        let mut workers = Vec::with_capacity(concurrency);
+        for worker_index in 0..concurrency {
+            let dispatcher = Arc::clone(&dispatcher);
+            let successes = Arc::clone(&successes);
+            let rejected = Arc::clone(&rejected);
+            workers.push(thread::spawn(move || {
+                let mut request_index = 0usize;
+                while Instant::now() < deadline {
+                    let id = format!("soak-{worker_index}-{request_index}");
+                    let response = dispatcher.dispatch_raw(
+                        &request(&id, "soak"),
+                        TRUSTED_ORIGIN,
+                        Duration::from_millis(5),
+                    );
+                    if response.ok {
+                        successes.fetch_add(1, Ordering::Relaxed);
+                    } else if response.error.is_some_and(|error| error.code == "busy") {
+                        rejected.fetch_add(1, Ordering::Relaxed);
+                    }
+                    request_index += 1;
+                }
+            }));
+        }
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        dispatcher.shutdown();
+        let cleanup_deadline = Instant::now() + Duration::from_secs(2);
+        while dispatcher.active_requests() > 0 && Instant::now() < cleanup_deadline {
+            thread::sleep(Duration::from_millis(2));
+        }
+        let metrics = dispatcher.metrics();
+        assert!(successes.load(Ordering::Relaxed) > 0);
+        assert!(rejected.load(Ordering::Relaxed) > 0);
+        assert_eq!(dispatcher.active_requests(), 0);
+        assert_eq!(dispatcher.queued_requests(), 0);
+        assert_eq!(metrics.active, 0);
+        assert_eq!(metrics.queued, 0);
     }
 }

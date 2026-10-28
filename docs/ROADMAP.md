@@ -117,9 +117,30 @@ broader generated-app integration coverage, and final API documentation review.
 - Finite Linux stress tests cover concurrent requests, timeout cancellation,
   overload bounds, and resource counter cleanup.
 
-Phase 7 still requires broader soak measurements and review of any future
-Python-level cancellation API. Windows WebView2, packaged runtime, installer,
-and clean-machine behavior remain unverified and must wait for the final
-platform-validation milestone.
+Phase 7 still requires no additional cloud implementation. Windows WebView2,
+packaged runtime, installer, and clean-machine behavior remain unverified and
+must wait for the final platform-validation milestone.
 Real Windows GUI behavior is intentionally deferred to the platform-validation
 phase; it must not be marked verified from Linux.
+
+## Phase 8A — performance recovery and runtime reliability (cloud implementation complete; Windows deferred)
+
+- Phase 6 versus Phase 7 benchmark conditions were compared in isolated
+  worktrees with equivalent release workloads. The observed ranges overlap and
+  do not support a confirmed Phase 7 throughput regression.
+- The dispatcher now has a queue-counter race fix, an instrumentation-disabled
+  comparison path, direct active/queued counters, and Linux `/proc` resource
+  snapshots for RSS, peak RSS, file descriptors, and threads.
+- Benchmark reports include commit/toolchain/workload metadata, warmup,
+  latency percentiles, throughput, dispatcher counters, and resource trends.
+- Quick, standard, and extended bounded soak modes cover burst traffic,
+  overload, repeated calls, shutdown cleanup, and active/queued counter checks.
+- Python handlers can opt into cooperative cancellation by declaring the
+  reserved `cancellation` keyword. The token is advisory and never forcibly
+  terminates a CPython thread.
+
+Phase 8A Linux implementation is complete for the measurable cloud scope.
+Remaining risks are allocator-retained RSS, thread-per-request scheduling under
+heavy load, and all Windows WebView2/packaging measurements. Phase 8B should
+profile the Windows host on real hardware, evaluate a bounded worker pool, and
+repeat process-level memory studies before changing scheduling primitives.

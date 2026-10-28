@@ -23,8 +23,20 @@ Windows WRY/WebView2 GUI smoke test is unavailable on Linux. `scripts/bench.sh`,
 `scripts/bench-cli.sh`, `scripts/bench-frontend.sh`, and
 `node scripts/bench-sdk.mjs` provide the local performance measurements.
 
+For the Phase 8A runtime benchmark, run `KOUROSH_BENCH_SAMPLES=100
+KOUROSH_BENCH_WARMUP=50 KOUROSH_BENCH_CONCURRENCY=8 scripts/bench.sh`. It
+writes enabled/disabled instrumentation JSON reports to `/tmp/kourosh-bench`
+and samples Linux `/proc` RSS, file descriptors, and threads. Use
+`KOUROSH_STRESS_MODE=quick scripts/stress.sh` for the cloud-safe soak; standard
+and extended modes remain bounded but take approximately five and fifteen
+minutes respectively.
+
 No credentials or service variables are required. Git operations use the
 managed HTTPS proxy. Keep `node_modules`, `.venv`, `target`, and frontend
 `dist` outputs local; they are ignored and should not be committed. A Windows
 machine is still required for WebView2 GUI, portable package launch, installer,
 and production distribution validation.
+
+The managed onboarding configuration is locked/published in this environment;
+`docs/cloud-onboarding.md` is the authoritative reproducible setup record.
+Do not attempt to overwrite the locked onboarding settings from a task.
