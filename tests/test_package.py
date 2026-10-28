@@ -5,10 +5,23 @@ import os
 import runpy
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from kourosh import App, KouroshError, __version__
-from kourosh.cli import create_project, load_config, main, run_dev, run_frontend_build
+from kourosh.cli import (
+    _stage_portable_distribution,
+    _prepare_output_base,
+    _write_build_manifest,
+    _write_checksums,
+    _zip_directory,
+    build_windows,
+    create_project,
+    load_config,
+    main,
+    run_dev,
+    run_frontend_build,
+)
 
 
 class PackageTests(unittest.TestCase):
@@ -66,6 +79,86 @@ class PackageTests(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 load_config(root)
+
+    def test_build_metadata_and_portable_staging_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = create_project("package_app", Path(temporary))
+            (root / "kourosh.toml").write_text(
+                '[app]\nname="Package App"\nversion="1.2.3"\nidentifier="com.example.package_app"\ntitle="Package App"\nentrypoint="main.py"\nfrontend="ui/index.html"\n',
+                encoding="utf-8",
+            )
+            config = load_config(root)
+            host = Path(temporary) / "kourosh-host.exe"
+            pe = bytearray(0x100)
+            pe[:2] = b"MZ"
+            pe[0x3C:0x40] = (0x80).to_bytes(4, "little")
+            pe[0x80:0x84] = b"PE\0\0"
+            pe[0x84:0x86] = (0x8664).to_bytes(2, "little")
+            host.write_bytes(pe)
+            runtime = Path(temporary) / "python-runtime"
+            runtime.mkdir()
+            (runtime / "python312.dll").write_bytes(b"runtime")
+            (runtime / "python312.zip").write_bytes(b"stdlib")
+            (runtime / "LICENSE.txt").write_text("CPython redistribution notice", encoding="utf-8")
+            staged = Path(temporary) / "staged"
+            _stage_portable_distribution(config, host, runtime, staged)
+            _write_build_manifest(staged, config, host, runtime)
+            _write_checksums(staged)
+            archive = Path(temporary) / "package.zip"
+            _zip_directory(staged, archive)
+            self.assertTrue((staged / "Package_App.exe").is_file())
+            self.assertTrue((staged / "app" / "main.py").is_file())
+            self.assertTrue((staged / "frontend" / "index.html").is_file())
+            self.assertTrue((staged / "python" / "python312.dll").is_file())
+            self.assertTrue((staged / "runtime" / "manifest.json").is_file())
+            self.assertTrue((staged / "SHA256SUMS.txt").is_file())
+            with zipfile.ZipFile(archive) as contents:
+                names = set(contents.namelist())
+            self.assertIn("staged/Package_App.exe", names)
+            self.assertIn("staged/runtime/manifest.json", names)
+            self.assertEqual(build_windows(root, host_binary=host, python_runtime=runtime), 0)
+            output = root / "dist" / "Package_App-1.2.3-windows-x64"
+            self.assertTrue((output / "Package_App.exe").is_file())
+            self.assertTrue(Path(f"{output}.zip").is_file())
+            self.assertTrue(Path(f"{output}.zip.sha256").is_file())
+
+    def test_packaging_requires_real_runtime_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = create_project("package_app", Path(temporary))
+            with self.assertRaises(RuntimeError):
+                # The CLI must fail clearly instead of fabricating a host or
+                # silently falling back to the developer's Python install.
+                from kourosh.cli import build_windows
+
+                build_windows(root)
+
+    def test_packaging_rejects_symlinked_resources_and_unsafe_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = create_project("package_app", Path(temporary))
+            outside = Path(temporary) / "outside.txt"
+            outside.write_text("outside", encoding="utf-8")
+            link = root / "ui" / "outside.txt"
+            try:
+                link.symlink_to(outside)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks are unavailable on this filesystem")
+            config = load_config(root)
+            host = Path(temporary) / "kourosh-host.exe"
+            pe = bytearray(0x100)
+            pe[:2] = b"MZ"
+            pe[0x3C:0x40] = (0x80).to_bytes(4, "little")
+            pe[0x80:0x84] = b"PE\0\0"
+            pe[0x84:0x86] = (0x8664).to_bytes(2, "little")
+            host.write_bytes(pe)
+            runtime = Path(temporary) / "python-runtime"
+            runtime.mkdir()
+            (runtime / "python312.dll").write_bytes(b"runtime")
+            (runtime / "python312.zip").write_bytes(b"stdlib")
+            (runtime / "LICENSE.txt").write_text("notice", encoding="utf-8")
+            with self.assertRaises(RuntimeError):
+                _stage_portable_distribution(config, host, runtime, Path(temporary) / "staged")
+            with self.assertRaises(RuntimeError):
+                _prepare_output_base(root, root / "unsafe-output")
 
     def test_react_and_typescript_generators_are_self_contained(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

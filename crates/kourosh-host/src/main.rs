@@ -15,6 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 struct HostOptions {
     app: Option<std::path::PathBuf>,
     frontend: Option<std::path::PathBuf>,
+    packaged_root: Option<std::path::PathBuf>,
     dev_url: Option<String>,
     trusted_origin: String,
     title: String,
@@ -43,6 +44,17 @@ fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
     let options = parse_host_options()?;
     if options.app.is_some() {
         std::env::set_var("KOUROSH_HOST_APP", "1");
+    }
+    if let Some(root) = options.packaged_root.as_deref() {
+        let python_root = root.join("python");
+        let app_root = root.join("app");
+        let runtime_python = root.join("runtime").join("python");
+        std::env::set_var("KOUROSH_PACKAGED_ROOT", root);
+        std::env::set_var("PYTHONHOME", &python_root);
+        std::env::set_var("PYTHONNOUSERSITE", "1");
+        std::env::remove_var("PYTHONPATH");
+        let search_path = std::env::join_paths([app_root, runtime_python])?;
+        std::env::set_var("KOUROSH_PYTHON_PATH", search_path);
     }
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
@@ -237,24 +249,120 @@ fn parse_host_options() -> Result<HostOptions, Box<dyn std::error::Error>> {
             unknown => return Err(format!("unknown host argument: {unknown}").into()),
         }
     }
+    let packaged_root = if app.is_none() && frontend.is_none() && dev_url.is_none() {
+        discover_packaged_paths()?.map(|packaged| {
+            app = Some(packaged.app);
+            frontend = Some(packaged.frontend);
+            if let Some(packaged_title) = packaged.title {
+                title = packaged_title;
+            }
+            if let Some(packaged_width) = packaged.width {
+                width = packaged_width;
+            }
+            if let Some(packaged_height) = packaged.height {
+                height = packaged_height;
+            }
+            packaged.root
+        })
+    } else {
+        None
+    };
     if title.is_empty() || width == 0 || height == 0 || width > 16_384 || height > 16_384 {
         return Err("invalid window configuration".into());
     }
-    if let (Some(app), Some(frontend)) = (&app, &frontend) {
-        let root = app.parent().ok_or("app path has no parent")?;
-        if !frontend.starts_with(root) {
-            return Err("frontend must be inside the application directory".into());
+    if packaged_root.is_none() {
+        if let (Some(app), Some(frontend)) = (&app, &frontend) {
+            let root = app.parent().ok_or("app path has no parent")?;
+            if !frontend.starts_with(root) {
+                return Err("frontend must be inside the application directory".into());
+            }
         }
     }
     Ok(HostOptions {
         app,
         frontend,
+        packaged_root,
         dev_url,
         trusted_origin,
         title,
         width,
         height,
     })
+}
+
+#[cfg(windows)]
+#[derive(serde::Deserialize)]
+struct PackageManifest {
+    app: String,
+    frontend: String,
+    python: String,
+    runtime_python: String,
+    title: Option<String>,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+#[cfg(windows)]
+struct PackagedPaths {
+    root: std::path::PathBuf,
+    app: std::path::PathBuf,
+    frontend: std::path::PathBuf,
+    title: Option<String>,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+#[cfg(windows)]
+fn discover_packaged_paths() -> Result<Option<PackagedPaths>, Box<dyn std::error::Error>> {
+    use std::fs;
+
+    let executable = std::env::current_exe()?;
+    let Some(root) = executable.parent() else {
+        return Ok(None);
+    };
+    let manifest_path = root.join("runtime").join("manifest.json");
+    if !manifest_path.is_file() {
+        return Ok(None);
+    }
+    let manifest: PackageManifest = serde_json::from_slice(&fs::read(&manifest_path)?)
+        .map_err(|error| format!("invalid packaged runtime manifest: {error}"))?;
+    let app = packaged_path(root, &manifest.app, "application entrypoint")?;
+    let frontend = packaged_path(root, &manifest.frontend, "frontend")?;
+    let python = packaged_path(root, &manifest.python, "Python runtime")?;
+    let runtime_python = packaged_path(root, &manifest.runtime_python, "Kourosh runtime")?;
+    if !app.is_file() || !frontend.is_file() || !python.is_dir() || !runtime_python.is_dir() {
+        return Err("packaged application is missing a required runtime resource".into());
+    }
+    Ok(Some(PackagedPaths {
+        root: root.to_path_buf(),
+        app,
+        frontend,
+        title: manifest.title,
+        width: manifest.width,
+        height: manifest.height,
+    }))
+}
+
+#[cfg(windows)]
+fn packaged_path(
+    root: &std::path::Path,
+    relative: &str,
+    label: &str,
+) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    use std::path::PathBuf;
+    let relative_path = PathBuf::from(relative);
+    if relative_path.is_absolute()
+        || relative_path
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(format!("packaged {label} path escapes the application directory").into());
+    }
+    let path = root.join(relative_path).canonicalize()?;
+    if !path.starts_with(root) {
+        return Err(format!("packaged {label} path escapes the application directory").into());
+    }
+    Ok(path)
 }
 
 #[cfg(windows)]

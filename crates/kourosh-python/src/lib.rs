@@ -71,11 +71,16 @@ impl PythonRuntime {
         })?;
         let filename = path.to_string_lossy().into_owned();
         Python::with_gil(|py| {
-            let sdk_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../python");
-            if sdk_path.is_dir() {
-                py.import_bound("sys")?
-                    .getattr("path")?
-                    .call_method1("insert", (0, sdk_path.to_string_lossy().as_ref()))?;
+            let search_paths = std::env::var_os("KOUROSH_PYTHON_PATH")
+                .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+                .unwrap_or_else(
+                    || vec![Path::new(env!("CARGO_MANIFEST_DIR")).join("../../python")],
+                );
+            let sys_path = py.import_bound("sys")?.getattr("path")?;
+            for sdk_path in search_paths.into_iter().rev() {
+                if sdk_path.is_dir() {
+                    sys_path.call_method1("insert", (0, sdk_path.to_string_lossy().as_ref()))?;
+                }
             }
             py.import_bound("os")?
                 .getattr("environ")?
