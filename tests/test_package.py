@@ -29,7 +29,7 @@ from kourosh.cli import (
 
 class PackageTests(unittest.TestCase):
     def test_package_version_and_app_configuration(self) -> None:
-        self.assertEqual(__version__, "0.2.0")
+        self.assertEqual(__version__, "0.1.0a1")
         app = App(title="Hello", width=1000, height=700)
         self.assertEqual(app.configuration(), {"title": "Hello", "width": 1000, "height": 700, "methods": []})
 
@@ -357,7 +357,7 @@ class PackageTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as raised:
                 main(["--version"])
         self.assertEqual(raised.exception.code, 0)
-        self.assertIn("kourosh 0.2.0", output.getvalue())
+        self.assertIn("kourosh 0.1.0a1", output.getvalue())
         app = App(title="Close")
         app.close()
         with self.assertRaises(KouroshError):

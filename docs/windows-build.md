@@ -17,7 +17,7 @@ kourosh build --target windows --format portable `
   --host C:\kourosh\target\x86_64-pc-windows-msvc\release\kourosh-host.exe
 ```
 
-The command creates `dist/Hello Kourosh-0.2.0-windows-x64/` (the exact name
+The command creates `dist/Hello Kourosh-0.1.0a1-windows-x64/` (the exact name
 comes from `[app].name` and `[app].version`) and a ZIP plus `.sha256` file.
 The host argument may be omitted when the release host is in the normal target
 directory or `KOUROSH_HOST_BIN` is set. The runtime argument may likewise use

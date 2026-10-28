@@ -16,7 +16,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol, TypeVar, overload
 
-__version__ = "0.2.0"
+from ._version import (
+    JAVASCRIPT_VERSION,
+    PROTOCOL_VERSION,
+    RELEASE_VERSION,
+    RUST_VERSION,
+    PYTHON_VERSION,
+)
+
+__version__ = PYTHON_VERSION
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 _MAX_TITLE_BYTES = 256
@@ -421,4 +429,8 @@ __all__ = [
     "PluginMetadata",
     "configure_logging",
     "__version__",
+    "JAVASCRIPT_VERSION",
+    "PROTOCOL_VERSION",
+    "RELEASE_VERSION",
+    "RUST_VERSION",
 ]

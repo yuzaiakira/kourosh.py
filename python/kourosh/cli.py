@@ -899,7 +899,7 @@ def _sdk_files() -> dict[str, str]:
     sdk_root = Path(__file__).resolve().parents[2] / "packages" / "sdk"
     if sdk_root.is_dir():
         return {f"vendor/@kourosh/sdk/{name}": (sdk_root / name).read_text(encoding="utf-8") for name in ("package.json", "index.js", "index.d.ts")}
-    return {"vendor/@kourosh/sdk/package.json": '{"name":"@kourosh/sdk","version":"0.1.0","private":true,"type":"module","exports":{".":{"types":"./index.d.ts","import":"./index.js"}}}\n', "vendor/@kourosh/sdk/index.js": _SDK_JS, "vendor/@kourosh/sdk/index.d.ts": _SDK_DTS}
+    return {"vendor/@kourosh/sdk/package.json": '{"name":"@kourosh/sdk","version":"0.1.0-alpha.1","private":true,"type":"module","exports":{".":{"types":"./index.d.ts","import":"./index.js"}}}\n', "vendor/@kourosh/sdk/index.js": _SDK_JS, "vendor/@kourosh/sdk/index.d.ts": _SDK_DTS}
 
 
 def _vanilla_files() -> dict[str, str]:

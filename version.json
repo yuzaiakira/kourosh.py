@@ -1,0 +1,7 @@
+{
+  "python": "0.1.0a1",
+  "javascript": "0.1.0-alpha.1",
+  "rust": "0.1.0",
+  "release": "v0.1.0-alpha.1",
+  "protocol": 1
+}
