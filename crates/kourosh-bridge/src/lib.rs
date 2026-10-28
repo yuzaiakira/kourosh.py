@@ -89,7 +89,12 @@ impl RpcResponse {
 /// Validate a raw message against the built-in `greet` allowlist.
 pub fn parse_request(raw: &str, origin: &str) -> Result<ValidatedRequest, BridgeError> {
     static GREET: OnceLock<Vec<String>> = OnceLock::new();
-    parse_request_with_methods(raw, origin, GREET.get_or_init(|| vec!["greet".to_owned()]))
+    parse_request_with_methods_internal(
+        raw,
+        origin,
+        GREET.get_or_init(|| vec!["greet".to_owned()]),
+        true,
+    )
 }
 
 /// Validate a raw message against an explicit method allowlist. The host owns
@@ -98,6 +103,15 @@ pub fn parse_request_with_methods(
     raw: &str,
     origin: &str,
     allowed_methods: &[String],
+) -> Result<ValidatedRequest, BridgeError> {
+    parse_request_with_methods_internal(raw, origin, allowed_methods, false)
+}
+
+fn parse_request_with_methods_internal(
+    raw: &str,
+    origin: &str,
+    allowed_methods: &[String],
+    builtin_greet: bool,
 ) -> Result<ValidatedRequest, BridgeError> {
     if origin != TRUSTED_ORIGIN {
         return Err(BridgeError::invalid_origin());
@@ -166,7 +180,7 @@ pub fn parse_request_with_methods(
 
     Ok(ValidatedRequest {
         id,
-        method: if method == "greet" {
+        method: if builtin_greet && method == "greet" {
             Method::Greet
         } else {
             Method::Custom(method.to_owned())
@@ -204,6 +218,7 @@ pub struct AsyncDispatcher {
     active: Arc<AtomicUsize>,
     closed: Arc<AtomicBool>,
     allowed_methods: Arc<Vec<String>>,
+    builtin_greet: bool,
     max_inflight: usize,
 }
 
@@ -212,12 +227,24 @@ impl AsyncDispatcher {
     where
         F: Fn(ValidatedRequest) -> Result<Value, BridgeError> + Send + Sync + 'static,
     {
-        Self::new_with_methods(queue_capacity, vec!["greet".to_owned()], handler)
+        Self::new_with_methods_internal(queue_capacity, vec!["greet".to_owned()], true, handler)
     }
 
     pub fn new_with_methods<F>(
         queue_capacity: usize,
         allowed_methods: Vec<String>,
+        handler: F,
+    ) -> Self
+    where
+        F: Fn(ValidatedRequest) -> Result<Value, BridgeError> + Send + Sync + 'static,
+    {
+        Self::new_with_methods_internal(queue_capacity, allowed_methods, false, handler)
+    }
+
+    fn new_with_methods_internal<F>(
+        queue_capacity: usize,
+        allowed_methods: Vec<String>,
+        builtin_greet: bool,
         handler: F,
     ) -> Self
     where
@@ -242,6 +269,7 @@ impl AsyncDispatcher {
             active,
             closed,
             allowed_methods,
+            builtin_greet,
             max_inflight: queue_capacity,
         }
     }
@@ -267,7 +295,12 @@ impl AsyncDispatcher {
         if self.closed.load(Ordering::Acquire) {
             return Err(BridgeError::new("shutdown", "the bridge is shut down"));
         }
-        let request = parse_request_with_methods(raw, origin, &self.allowed_methods)?;
+        let request = parse_request_with_methods_internal(
+            raw,
+            origin,
+            &self.allowed_methods,
+            self.builtin_greet,
+        )?;
         if !self.reserve_inflight_slot() {
             return Err(BridgeError::new(
                 "busy",
@@ -630,6 +663,20 @@ mod tests {
                 .unwrap_err()
                 .code,
             "method_not_allowed"
+        );
+
+        let custom_greet = serde_json::json!({
+            "id":"custom-greet",
+            "method":"greet",
+            "args":{"name":"App"}
+        })
+        .to_string();
+        let custom_methods = vec!["greet".to_owned()];
+        assert_eq!(
+            parse_request_with_methods(&custom_greet, TRUSTED_ORIGIN, &custom_methods)
+                .unwrap()
+                .method,
+            Method::Custom("greet".to_owned())
         );
     }
 }

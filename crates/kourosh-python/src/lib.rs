@@ -341,7 +341,7 @@ app.run()
         let path = directory.join("main.py");
         std::fs::write(
             &path,
-            "from kourosh import App\napp = App(title='Test')\n@app.expose\ndef add(left, right):\n    return {'value': left + right}\napp.run()\n",
+            "from kourosh import App\napp = App(title='Test')\n@app.expose\ndef greet(name):\n    return {'message': 'Custom ' + name}\napp.run()\n",
         )
         .unwrap();
         let runtime = std::sync::Arc::new(PythonRuntime::new_with_app(&path).unwrap());
@@ -352,8 +352,8 @@ app.run()
         );
         let raw = serde_json::json!({
             "id":"rpc-1",
-            "method":"add",
-            "args":{"left":4,"right":6}
+            "method":"greet",
+            "args":{"name":"Akira"}
         })
         .to_string();
         let response = dispatcher.dispatch_raw(
@@ -362,7 +362,10 @@ app.run()
             std::time::Duration::from_secs(1),
         );
         assert_eq!(response.id.as_deref(), Some("rpc-1"));
-        assert_eq!(response.result, Some(serde_json::json!({"value":10})));
+        assert_eq!(
+            response.result,
+            Some(serde_json::json!({"message":"Custom Akira"}))
+        );
         let denied = dispatcher.dispatch_raw(
             &serde_json::json!({"id":"rpc-2","method":"shell","args":{}}).to_string(),
             kourosh_bridge::TRUSTED_ORIGIN,
