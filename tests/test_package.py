@@ -9,7 +9,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from kourosh import App, KouroshError, Plugin, PluginMetadata, __version__
+from kourosh import App, CancellationToken, KouroshError, Plugin, PluginMetadata, __version__
 from kourosh.cli import (
     _stage_portable_distribution,
     _prepare_output_base,
@@ -84,6 +84,29 @@ class PackageTests(unittest.TestCase):
             app._dispatch("bad-name", "{}")
         self.assertEqual(raised.exception.code, "invalid_method")
 
+    def test_cancellation_is_an_opt_in_reserved_handler_argument(self) -> None:
+        self.assertTrue(hasattr(CancellationToken, "is_canceled"))
+        self.assertTrue(hasattr(CancellationToken, "is_cancelled"))
+        app = App(title="Cancellation")
+
+        @app.expose
+        def observed(cancellation):
+            return {"canceled": cancellation.is_canceled()}
+
+        class Token:
+            def is_canceled(self):
+                return True
+
+            def is_cancelled(self):
+                return True
+
+        self.assertEqual(
+            app._dispatch("observed", "{}", Token()),
+            {"canceled": True},
+        )
+        with self.assertRaisesRegex(Exception, "reserved"):
+            app._dispatch("observed", '{"cancellation": true}')
+
     def test_trusted_plugins_have_explicit_metadata_and_deterministic_cleanup(self) -> None:
         events: list[str] = []
 
@@ -111,6 +134,31 @@ class PackageTests(unittest.TestCase):
         app.close()
         app.close()
         self.assertEqual(events, ["init", "shutdown"])
+
+    def test_plugin_shutdown_errors_do_not_block_later_cleanup_or_registration_guards(self) -> None:
+        events: list[str] = []
+
+        class FailingPlugin(Plugin):
+            metadata = PluginMetadata("failing", "1.0")
+
+            def shutdown(self) -> None:
+                events.append("failing")
+                raise RuntimeError("cleanup failure")
+
+        class HealthyPlugin(Plugin):
+            metadata = PluginMetadata("healthy", "1.0")
+
+            def shutdown(self) -> None:
+                events.append("healthy")
+
+        app = App(title="Plugin cleanup")
+        app.register_plugin(FailingPlugin())
+        app.register_plugin(HealthyPlugin())
+        app.close()
+        self.assertEqual(events, ["healthy", "failing"])
+        with self.assertRaises(KouroshError) as raised:
+            app.register_plugin(HealthyPlugin())
+        self.assertEqual(raised.exception.code, "app_closed")
 
     def test_plugin_registration_rolls_back_methods_on_initialization_failure(self) -> None:
         class BrokenPlugin(Plugin):

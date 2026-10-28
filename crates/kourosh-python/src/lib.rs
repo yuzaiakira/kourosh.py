@@ -4,7 +4,10 @@
 //! made while holding the GIL, and the caller is expected to run this type from
 //! a worker (the bridge dispatcher does that for the native host).
 
-use kourosh_bridge::{BridgeError, Method, ValidatedRequest, PROTOCOL_VERSION};
+use kourosh_bridge::{
+    BridgeError, CancellationToken as RustCancellationToken, Method, ValidatedRequest,
+    PROTOCOL_VERSION,
+};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use serde_json::Value;
@@ -53,6 +56,26 @@ pub struct RuntimeCapabilities {
     pub initialization_duration: Duration,
 }
 
+/// Python-visible view of the Rust cooperative cancellation signal. The
+/// object is intentionally small and only exposes polling; it cannot stop a
+/// Python thread or roll back handler side effects.
+#[pyclass(name = "CancellationToken")]
+#[derive(Clone)]
+struct PythonCancellationToken {
+    token: RustCancellationToken,
+}
+
+#[pymethods]
+impl PythonCancellationToken {
+    fn is_canceled(&self) -> bool {
+        self.token.is_canceled()
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.token.is_cancelled()
+    }
+}
+
 /// Narrow runtime contract used by the native host. Future adapters may
 /// implement the same request/response and lifecycle semantics without
 /// exposing their interpreter details to the host.
@@ -60,6 +83,14 @@ pub trait RuntimeAdapter: Send + Sync {
     fn capabilities(&self) -> RuntimeCapabilities;
     fn methods(&self) -> &[String];
     fn dispatch(&self, request: ValidatedRequest) -> Result<Value, BridgeError>;
+    fn dispatch_with_cancellation(
+        &self,
+        request: ValidatedRequest,
+        cancellation: &RustCancellationToken,
+    ) -> Result<Value, BridgeError> {
+        let _ = cancellation;
+        self.dispatch(request)
+    }
     fn shutdown(&self);
     fn is_shutdown(&self) -> bool;
 }
@@ -143,6 +174,14 @@ impl PythonRuntime {
     }
 
     pub fn call(&self, request: ValidatedRequest) -> Result<Value, BridgeError> {
+        self.call_with_cancellation(request, None)
+    }
+
+    pub fn call_with_cancellation(
+        &self,
+        request: ValidatedRequest,
+        cancellation: Option<&RustCancellationToken>,
+    ) -> Result<Value, BridgeError> {
         match request.method {
             Method::Greet => self.greet(&request.name).map_err(|error| BridgeError {
                 code: error.code.to_owned(),
@@ -152,7 +191,7 @@ impl PythonRuntime {
                     "the Python handler raised an exception".to_owned()
                 },
             }),
-            Method::Custom(method) => self.call_app(&method, &request.args),
+            Method::Custom(method) => self.call_app(&method, &request.args, cancellation),
         }
     }
 
@@ -174,6 +213,7 @@ impl PythonRuntime {
         &self,
         method: &str,
         args: &serde_json::Map<String, Value>,
+        cancellation: Option<&RustCancellationToken>,
     ) -> Result<Value, BridgeError> {
         self.ensure_open().map_err(|error| BridgeError {
             code: error.code.to_owned(),
@@ -188,10 +228,24 @@ impl PythonRuntime {
                 code: "invalid_args".to_owned(),
                 message: format!("arguments are not JSON compatible: {error}"),
             })?;
-            let result = app
-                .bind(py)
-                .call_method1("_dispatch", (method, args_json))
-                .map_err(|error| python_exception_to_bridge_error(py, error))?;
+            let result = match cancellation {
+                Some(token) => {
+                    let python_token = Py::new(
+                        py,
+                        PythonCancellationToken {
+                            token: token.clone(),
+                        },
+                    )
+                    .map_err(|error| python_exception_to_bridge_error(py, error))?;
+                    app.bind(py)
+                        .call_method1("_dispatch", (method, args_json, python_token))
+                        .map_err(|error| python_exception_to_bridge_error(py, error))?
+                }
+                None => app
+                    .bind(py)
+                    .call_method1("_dispatch", (method, args_json))
+                    .map_err(|error| python_exception_to_bridge_error(py, error))?,
+            };
             let json = py
                 .import_bound("json")
                 .map_err(|error| python_exception_to_bridge_error(py, error))?
@@ -241,6 +295,14 @@ impl RuntimeAdapter for PythonRuntime {
 
     fn dispatch(&self, request: ValidatedRequest) -> Result<Value, BridgeError> {
         self.call(request)
+    }
+
+    fn dispatch_with_cancellation(
+        &self,
+        request: ValidatedRequest,
+        cancellation: &RustCancellationToken,
+    ) -> Result<Value, BridgeError> {
+        self.call_with_cancellation(request, Some(cancellation))
     }
 
     fn shutdown(&self) {
@@ -453,6 +515,57 @@ app.run()
             std::time::Duration::from_secs(1),
         );
         assert_eq!(denied.error.unwrap().code, "method_not_allowed");
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn timeout_token_reaches_a_cancellation_aware_python_handler() {
+        let directory = tempfile_directory();
+        let path = directory.join("main.py");
+        std::fs::write(
+            &path,
+            r#"
+import time
+from kourosh import App
+app = App(title="Cancellation")
+@app.expose
+def wait_for_cancel(cancellation):
+    while not cancellation.is_cancelled():
+        time.sleep(0.001)
+    return {"cancelled": cancellation.is_canceled()}
+app.run()
+"#,
+        )
+        .unwrap();
+        let runtime = std::sync::Arc::new(PythonRuntime::new_with_app(&path).unwrap());
+        let runtime_for_dispatch = std::sync::Arc::clone(&runtime);
+        let dispatcher = kourosh_bridge::AsyncDispatcher::new_with_methods_cancellable(
+            2,
+            runtime.methods().to_vec(),
+            move |request, cancellation| {
+                runtime_for_dispatch.dispatch_with_cancellation(request, &cancellation)
+            },
+        );
+        let raw = serde_json::json!({
+            "id": "cancel-python",
+            "method": "wait_for_cancel",
+            "args": {}
+        })
+        .to_string();
+        let response = dispatcher.dispatch_raw(
+            &raw,
+            kourosh_bridge::TRUSTED_ORIGIN,
+            std::time::Duration::from_millis(10),
+        );
+        assert_eq!(response.error.unwrap().code, "timeout");
+        for _ in 0..100 {
+            if dispatcher.metrics().active == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(dispatcher.metrics().active, 0);
+        assert_eq!(dispatcher.metrics().timeouts, 1);
         let _ = std::fs::remove_dir_all(directory);
     }
 

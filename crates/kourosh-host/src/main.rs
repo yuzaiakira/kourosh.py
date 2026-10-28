@@ -71,10 +71,12 @@ fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
     });
     let allowed_methods = runtime.methods().to_vec();
     let runtime_for_dispatch = Arc::clone(&runtime);
-    let dispatcher = Arc::new(AsyncDispatcher::new_with_methods(
+    let dispatcher = Arc::new(AsyncDispatcher::new_with_methods_cancellable(
         32,
         allowed_methods,
-        move |request| runtime_for_dispatch.dispatch(request),
+        move |request, cancellation| {
+            runtime_for_dispatch.dispatch_with_cancellation(request, &cancellation)
+        },
     ));
     let dispatcher_for_ipc = Arc::clone(&dispatcher);
     let dispatcher_for_lifecycle = Arc::clone(&dispatcher);

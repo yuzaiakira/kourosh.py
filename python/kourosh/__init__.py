@@ -14,7 +14,7 @@ import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, TypeVar, overload
+from typing import Any, Callable, Protocol, TypeVar, overload
 
 __version__ = "0.2.0"
 
@@ -58,6 +58,22 @@ class KouroshError(RuntimeError):
         self.code = code
         self.message = message
         super().__init__(message)
+
+
+class CancellationToken(Protocol):
+    """Opt-in polling contract for cancellation-aware exposed handlers.
+
+    The native runtime supplies an implementation only when a request reaches
+    its timeout or the window begins shutting down. Polling is cooperative:
+    handlers must release their own resources and side effects are not rolled
+    back when cancellation is observed.
+    """
+
+    def is_canceled(self) -> bool:
+        ...
+
+    def is_cancelled(self) -> bool:
+        ...
 
 
 @dataclass(frozen=True)
@@ -197,8 +213,13 @@ class App:
 
         return self._closed
 
-    def _dispatch(self, method: str, args_json: str) -> Any:
-        """Called by the embedded runtime after native allowlist checks."""
+    def _dispatch(self, method: str, args_json: str, cancellation: Any | None = None) -> Any:
+        """Dispatch one registered method after native allowlist checks.
+
+        ``cancellation`` is reserved for the embedded runtime. A handler opts
+        in by declaring a keyword parameter with that name; legacy handlers
+        continue to receive only their JSON arguments.
+        """
 
         if not isinstance(method, str) or not _METHOD_RE.fullmatch(method):
             raise _RpcError("invalid_method", "method must match the public RPC name format")
@@ -213,17 +234,27 @@ class App:
             raise _RpcError("invalid_args", "arguments must be valid JSON") from error
         if not isinstance(args, dict):
             raise _RpcError("invalid_args", "arguments must be a JSON object")
+        if "cancellation" in args:
+            raise _RpcError("invalid_args", "cancellation is reserved for the runtime")
         try:
             try:
                 signature = inspect.signature(function)
             except (TypeError, ValueError):
                 signature = None
+            call_args = dict(args)
+            if cancellation is not None and signature is not None:
+                accepts_cancellation = "cancellation" in signature.parameters or any(
+                    parameter.kind is inspect.Parameter.VAR_KEYWORD
+                    for parameter in signature.parameters.values()
+                )
+                if accepts_cancellation:
+                    call_args["cancellation"] = cancellation
             if signature is not None:
                 try:
-                    signature.bind(**args)
+                    signature.bind(**call_args)
                 except TypeError as error:
                     raise _RpcError("invalid_args", "arguments did not match the exposed function") from error
-            result = function(**args)
+            result = function(**call_args)
             if inspect.isawaitable(result):
                 result = _run_awaitable(result)
         except _RpcError:
