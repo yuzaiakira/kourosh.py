@@ -11,8 +11,11 @@
 
 - Windows host code uses WRY/TAO, a packaged document, navigation restrictions,
   and event-loop delivery of asynchronous bridge responses.
-- Linux CI-free validation covers bridge and embedded Python behavior. A Windows
-  machine with WebView2 is required to complete the GUI gate.
+- Linux CI-free validation covers bridge and embedded Python behavior, including
+  concurrent requests, timeouts, and shutdown. A Windows machine with WebView2
+  is required to complete the GUI gate.
+- Local benchmark scripts now measure embedded-Python startup, RPC latency, and
+  bounded-dispatcher throughput; Windows host memory/startup requires Windows.
 
 ## Next task
 

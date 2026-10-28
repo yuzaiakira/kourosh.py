@@ -6,9 +6,11 @@
 
 use kourosh_bridge::{BridgeError, Method, ValidatedRequest};
 use pyo3::prelude::*;
+use pyo3::sync::GILOnceCell;
 use pyo3::types::PyModule;
 use serde_json::Value;
 use std::fmt::{Display, Formatter};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const PYTHON_MODULE: &str = r#"
 def greet(name):
@@ -19,6 +21,7 @@ def greet(name):
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PythonError {
+    pub code: &'static str,
     pub message: String,
 }
 
@@ -33,24 +36,39 @@ impl std::error::Error for PythonError {}
 impl From<PyErr> for PythonError {
     fn from(error: PyErr) -> Self {
         Self {
+            code: "python_error",
             message: error.to_string(),
         }
     }
 }
 
-pub struct PythonRuntime;
+pub struct PythonRuntime {
+    closed: AtomicBool,
+    module: GILOnceCell<Py<PyModule>>,
+}
 
 impl PythonRuntime {
     pub fn new() -> Result<Self, PythonError> {
+        let runtime = Self {
+            closed: AtomicBool::new(false),
+            module: GILOnceCell::new(),
+        };
         Python::with_gil(|py| {
-            let _ = load_module(py)?;
-            Ok(Self)
+            runtime
+                .module
+                .get_or_try_init(py, || load_module(py).map(Bound::unbind))?;
+            Ok(runtime)
         })
     }
 
     pub fn greet(&self, name: &str) -> Result<Value, PythonError> {
+        self.ensure_open()?;
         Python::with_gil(|py| {
-            let module = load_module(py)?;
+            let module = self
+                .module
+                .get(py)
+                .expect("PythonRuntime initializes its module before returning");
+            let module = module.bind(py);
             let result = module.getattr("greet")?.call1((name,))?;
             let message: String = result.get_item("message")?.extract()?;
             Ok(serde_json::json!({"message": message}))
@@ -59,11 +77,44 @@ impl PythonRuntime {
 
     pub fn call(&self, request: ValidatedRequest) -> Result<Value, BridgeError> {
         match request.method {
-            Method::Greet => self.greet(&request.name).map_err(|_error| BridgeError {
-                code: "python_error".to_owned(),
-                message: "the Python handler raised an exception".to_owned(),
+            Method::Greet => self.greet(&request.name).map_err(|error| BridgeError {
+                code: error.code.to_owned(),
+                message: if error.code == "runtime_shutdown" {
+                    "the Python runtime is shut down".to_owned()
+                } else {
+                    "the Python handler raised an exception".to_owned()
+                },
             }),
         }
+    }
+
+    fn ensure_open(&self) -> Result<(), PythonError> {
+        if self.closed.load(Ordering::Acquire) {
+            Err(PythonError {
+                code: "runtime_shutdown",
+                message: "the Python runtime is shut down".to_owned(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Mark this runtime closed. PyO3 owns the process-global interpreter and
+    /// intentionally does not expose a safe `Py_Finalize` operation; dropping
+    /// this handle releases application ownership without finalizing Python
+    /// underneath other Rust/Python values.
+    pub fn shutdown(&self) {
+        self.closed.store(true, Ordering::Release);
+    }
+
+    pub fn is_shutdown(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
+}
+
+impl Drop for PythonRuntime {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 
@@ -89,6 +140,7 @@ mod tests {
     fn python_exception_is_not_returned_as_success() {
         let runtime = PythonRuntime::new().unwrap();
         let error = runtime.greet("").unwrap_err();
+        assert_eq!(error.code, "python_error");
         assert!(error.message.contains("name must be a non-empty string"));
     }
 
@@ -112,5 +164,25 @@ mod tests {
         };
         let error = runtime.call(bad_request).unwrap_err();
         assert_eq!(error.code, "python_error");
+    }
+
+    #[test]
+    fn shutdown_rejects_new_python_calls_without_finalizing_process_python() {
+        let runtime = PythonRuntime::new().unwrap();
+        runtime.shutdown();
+        assert!(runtime.is_shutdown());
+        let error = runtime.greet("Ada").unwrap_err();
+        assert_eq!(error.code, "runtime_shutdown");
+        assert_eq!(
+            runtime
+                .call(ValidatedRequest {
+                    id: "r3".to_owned(),
+                    method: Method::Greet,
+                    name: "Ada".to_owned(),
+                })
+                .unwrap_err()
+                .code,
+            "runtime_shutdown"
+        );
     }
 }

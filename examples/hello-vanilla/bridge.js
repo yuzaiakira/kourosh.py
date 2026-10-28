@@ -1,6 +1,7 @@
 (() => {
   "use strict";
   const MAX_REQUEST_BYTES = 64 * 1024;
+  const MAX_PENDING_REQUESTS = 32;
   const DEFAULT_TIMEOUT_MS = 5000;
   const pending = new Map();
   let sequence = 0;
@@ -20,6 +21,14 @@
     else call.reject(response.error || { code: "unknown_error", message: "bridge call failed" });
   };
 
+  window.__kouroshRejectAll = (error = { code: "window_closed", message: "window is closing" }) => {
+    for (const call of pending.values()) {
+      clearTimeout(call.timer);
+      call.reject(error);
+    }
+    pending.clear();
+  };
+
   window.kourosh = Object.freeze({
     invoke(method, args, options = {}) {
       if (typeof method !== "string" || !method) {
@@ -33,6 +42,9 @@
       if (!window.ipc || typeof window.ipc.postMessage !== "function") {
         return Promise.reject({ code: "bridge_unavailable", message: "the native host IPC channel is unavailable" });
       }
+      if (pending.size >= MAX_PENDING_REQUESTS) {
+        return Promise.reject({ code: "busy", message: "too many bridge calls are in flight" });
+      }
       const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
         ? Math.min(options.timeoutMs, DEFAULT_TIMEOUT_MS)
         : DEFAULT_TIMEOUT_MS;
@@ -42,7 +54,13 @@
           reject({ code: "timeout", message: "the bridge call timed out" });
         }, timeoutMs);
         pending.set(id, { resolve, reject, timer });
-        window.ipc.postMessage(raw);
+        try {
+          window.ipc.postMessage(raw);
+        } catch (_error) {
+          pending.delete(id);
+          clearTimeout(timer);
+          reject({ code: "transport_error", message: "the native IPC channel rejected the request" });
+        }
       });
     },
   });

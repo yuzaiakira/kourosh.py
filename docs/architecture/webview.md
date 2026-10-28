@@ -8,4 +8,6 @@ origin check using the request URI before dispatching work.
 
 This Linux environment cannot instantiate WebView2. The Windows compile and
 manual smoke test are therefore explicitly unverified until run on a Windows
-10/11 x64 host with the WebView2 runtime installed.
+10/11 x64 host with the WebView2 runtime installed. The reproducible procedure
+is [docs/windows-smoke-test.md](../windows-smoke-test.md), launched by
+`scripts/smoke.ps1`.

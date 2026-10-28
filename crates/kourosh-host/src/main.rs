@@ -13,7 +13,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(windows)]
 fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
-    use kourosh_bridge::{AsyncDispatcher, BridgeError, RpcResponse, TRUSTED_ORIGIN};
+    use kourosh_bridge::{
+        response_for_error, AsyncDispatcher, BridgeError, RpcResponse, TRUSTED_ORIGIN,
+    };
     use kourosh_python::PythonRuntime;
     use std::borrow::Cow;
     use std::sync::Arc;
@@ -35,10 +37,13 @@ fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
         .with_title("Kourosh.py")
         .build(&event_loop)?;
     let runtime = Arc::new(PythonRuntime::new()?);
+    let runtime_for_dispatch = Arc::clone(&runtime);
     let dispatcher = Arc::new(AsyncDispatcher::new(32, move |request| {
-        runtime.call(request)
+        runtime_for_dispatch.call(request)
     }));
     let dispatcher_for_ipc = Arc::clone(&dispatcher);
+    let dispatcher_for_lifecycle = Arc::clone(&dispatcher);
+    let runtime_for_lifecycle = Arc::clone(&runtime);
     let proxy_for_ipc = proxy.clone();
 
     let webview = WebViewBuilder::new()
@@ -93,8 +98,10 @@ fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
                     });
                 }
                 Err(error) => {
-                    let _ = proxy_for_ipc
-                        .send_event(UserEvent::Response(RpcResponse::failure(None, error)));
+                    let _ = proxy_for_ipc.send_event(UserEvent::Response(response_for_error(
+                        request.body(),
+                        error,
+                    )));
                 }
             }
         })
@@ -120,7 +127,14 @@ fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
-            } => *control_flow = ControlFlow::Exit,
+            } => {
+                let _ = webview.evaluate_script(
+                    "window.__kouroshRejectAll && window.__kouroshRejectAll({code:'window_closed',message:'window is closing'});",
+                );
+                dispatcher_for_lifecycle.shutdown();
+                runtime_for_lifecycle.shutdown();
+                *control_flow = ControlFlow::Exit;
+            }
             _ => {}
         }
     });

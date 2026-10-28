@@ -12,6 +12,7 @@ python -m unittest discover -s tests -p "test_*.py" -q
 if (Get-Command node -ErrorAction SilentlyContinue) {
     node --check examples/hello-vanilla/bridge.js
     node --check examples/hello-vanilla/app.js
+    node tests/bridge.test.js
 } else {
     Write-Warning "node is not installed; JavaScript syntax checks were not run"
 }

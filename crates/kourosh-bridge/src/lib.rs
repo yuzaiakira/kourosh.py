@@ -6,11 +6,11 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 // WRY maps the custom `kourosh` protocol to this HTTPS origin on Windows.
 pub const TRUSTED_ORIGIN: &str = "https://kourosh.app";
@@ -160,6 +160,13 @@ fn request_id(raw: &str) -> Option<String> {
         .and_then(|value| value.get("id").and_then(Value::as_str).map(str::to_owned))
 }
 
+/// Build an error response while retaining a syntactically recoverable request
+/// ID. This lets the browser reject a pending Promise even when validation
+/// fails before a request can enter the worker queue.
+pub fn response_for_error(raw: &str, error: BridgeError) -> RpcResponse {
+    RpcResponse::failure(request_id(raw), error)
+}
+
 type Handler = dyn Fn(ValidatedRequest) -> Result<Value, BridgeError> + Send + Sync + 'static;
 
 struct Job {
@@ -173,6 +180,7 @@ struct Job {
 pub struct AsyncDispatcher {
     sender: SyncSender<Job>,
     active: Arc<AtomicUsize>,
+    closed: Arc<AtomicBool>,
     max_inflight: usize,
 }
 
@@ -184,17 +192,20 @@ impl AsyncDispatcher {
         let queue_capacity = queue_capacity.max(1);
         let (sender, receiver) = mpsc::sync_channel(queue_capacity);
         let active = Arc::new(AtomicUsize::new(0));
+        let closed = Arc::new(AtomicBool::new(false));
         let worker_handler: Arc<Handler> = Arc::new(handler);
         let worker_active = Arc::clone(&active);
+        let worker_closed = Arc::clone(&closed);
 
         thread::Builder::new()
             .name("kourosh-bridge".to_owned())
-            .spawn(move || worker_loop(receiver, worker_handler, worker_active))
+            .spawn(move || worker_loop(receiver, worker_handler, worker_active, worker_closed))
             .expect("bridge worker thread must start");
 
         Self {
             sender,
             active,
+            closed,
             max_inflight: queue_capacity,
         }
     }
@@ -205,6 +216,9 @@ impl AsyncDispatcher {
         origin: &str,
         timeout: Duration,
     ) -> Result<Receiver<RpcResponse>, BridgeError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(BridgeError::new("shutdown", "the bridge is shut down"));
+        }
         let request = parse_request(raw, origin)?;
         if !self.reserve_inflight_slot() {
             return Err(BridgeError::new(
@@ -239,7 +253,7 @@ impl AsyncDispatcher {
     fn reserve_inflight_slot(&self) -> bool {
         let mut current = self.active.load(Ordering::Acquire);
         loop {
-            if current >= self.max_inflight {
+            if self.closed.load(Ordering::Acquire) || current >= self.max_inflight {
                 return false;
             }
             match self.active.compare_exchange_weak(
@@ -254,8 +268,18 @@ impl AsyncDispatcher {
         }
     }
 
-    /// Synchronous convenience method used by the host's IPC callback and
-    /// integration tests. It still executes the handler on the bridge worker.
+    /// Stop accepting work. Queued requests receive a structured shutdown
+    /// response, and the current handler is allowed to finish cooperatively.
+    pub fn shutdown(&self) {
+        self.closed.store(true, Ordering::Release);
+    }
+
+    pub fn is_shutdown(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
+
+    /// Synchronous convenience method for integration tests and non-UI
+    /// callers. It still executes the handler on the bridge worker.
     pub fn dispatch_raw(&self, raw: &str, origin: &str, timeout: Duration) -> RpcResponse {
         let id = request_id(raw);
         match self.submit(raw, origin, timeout) {
@@ -267,8 +291,37 @@ impl AsyncDispatcher {
     }
 }
 
-fn worker_loop(receiver: Receiver<Job>, handler: Arc<Handler>, active: Arc<AtomicUsize>) {
-    while let Ok(job) = receiver.recv() {
+impl Drop for AsyncDispatcher {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+fn worker_loop(
+    receiver: Receiver<Job>,
+    handler: Arc<Handler>,
+    active: Arc<AtomicUsize>,
+    closed: Arc<AtomicBool>,
+) {
+    loop {
+        let job = match receiver.recv_timeout(Duration::from_millis(50)) {
+            Ok(job) => job,
+            Err(mpsc::RecvTimeoutError::Timeout) if closed.load(Ordering::Acquire) => {
+                reject_queued(&receiver, &active);
+                break;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        };
+        if closed.load(Ordering::Acquire) {
+            active.fetch_sub(1, Ordering::AcqRel);
+            let _ = job.response.send(RpcResponse::failure(
+                Some(job.request.id),
+                BridgeError::new("shutdown", "the bridge is shut down"),
+            ));
+            continue;
+        }
+
         let (result_tx, result_rx) = mpsc::sync_channel(1);
         let request = job.request.clone();
         let handler = Arc::clone(&handler);
@@ -279,19 +332,53 @@ fn worker_loop(receiver: Receiver<Job>, handler: Arc<Handler>, active: Arc<Atomi
             active_for_job.fetch_sub(1, Ordering::AcqRel);
         });
 
-        let response = match result_rx.recv_timeout(job.timeout) {
-            Ok(Ok(result)) => RpcResponse::success(job.request.id, result),
-            Ok(Err(error)) => RpcResponse::failure(Some(job.request.id), error),
-            Err(mpsc::RecvTimeoutError::Timeout) => RpcResponse::failure(
-                Some(job.request.id),
-                BridgeError::new("timeout", "the Python call exceeded its timeout"),
-            ),
-            Err(mpsc::RecvTimeoutError::Disconnected) => RpcResponse::failure(
-                Some(job.request.id),
-                BridgeError::new("handler_stopped", "the bridge handler stopped"),
-            ),
-        };
+        let response = wait_for_result(result_rx, job.request.id, job.timeout, &closed);
         let _ = job.response.send(response);
+    }
+}
+
+fn reject_queued(receiver: &Receiver<Job>, active: &AtomicUsize) {
+    while let Ok(job) = receiver.try_recv() {
+        active.fetch_sub(1, Ordering::AcqRel);
+        let _ = job.response.send(RpcResponse::failure(
+            Some(job.request.id),
+            BridgeError::new("shutdown", "the bridge is shut down"),
+        ));
+    }
+}
+
+fn wait_for_result(
+    receiver: Receiver<Result<Value, BridgeError>>,
+    id: String,
+    timeout: Duration,
+    closed: &AtomicBool,
+) -> RpcResponse {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if closed.load(Ordering::Acquire) {
+            return RpcResponse::failure(
+                Some(id),
+                BridgeError::new("shutdown", "the bridge is shut down"),
+            );
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return RpcResponse::failure(
+                Some(id),
+                BridgeError::new("timeout", "the Python call exceeded its timeout"),
+            );
+        }
+        match receiver.recv_timeout(remaining.min(Duration::from_millis(50))) {
+            Ok(Ok(result)) => return RpcResponse::success(id, result),
+            Ok(Err(error)) => return RpcResponse::failure(Some(id), error),
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return RpcResponse::failure(
+                    Some(id),
+                    BridgeError::new("handler_stopped", "the bridge handler stopped"),
+                )
+            }
+        }
     }
 }
 
@@ -395,5 +482,79 @@ mod tests {
         );
         assert_eq!(busy.unwrap_err().code, "busy");
         assert_eq!(first.recv().unwrap().error.unwrap().code, "timeout");
+    }
+
+    #[test]
+    fn handles_concurrent_invocations_without_crossing_responses() {
+        let dispatcher = Arc::new(AsyncDispatcher::new(32, |request| {
+            thread::sleep(Duration::from_millis(1));
+            Ok(greet_result(&request.name))
+        }));
+        let mut workers = Vec::new();
+        for index in 0..16 {
+            let dispatcher = Arc::clone(&dispatcher);
+            workers.push(thread::spawn(move || {
+                let id = format!("concurrent-{index}");
+                let raw = request(&id, &format!("Name {index}"));
+                dispatcher.dispatch_raw(&raw, TRUSTED_ORIGIN, Duration::from_secs(1))
+            }));
+        }
+        for (index, worker) in workers.into_iter().enumerate() {
+            let response = worker.join().unwrap();
+            assert!(response.ok);
+            assert_eq!(
+                response.id.as_deref(),
+                Some(format!("concurrent-{index}").as_str())
+            );
+            assert_eq!(
+                response.result.unwrap()["message"],
+                format!("Hello, Name {index}!")
+            );
+        }
+    }
+
+    #[test]
+    fn preserves_ids_for_validation_errors_and_rejects_after_shutdown() {
+        let dispatcher = AsyncDispatcher::new(2, |request| Ok(greet_result(&request.name)));
+        let malformed = serde_json::json!({"id":"bad-1","method":"greet","args":{}}).to_string();
+        let response = dispatcher.dispatch_raw(&malformed, TRUSTED_ORIGIN, Duration::from_secs(1));
+        assert_eq!(response.id.as_deref(), Some("bad-1"));
+        assert_eq!(response.error.unwrap().code, "invalid_args");
+
+        dispatcher.shutdown();
+        assert!(dispatcher.is_shutdown());
+        let response = dispatcher.dispatch_raw(
+            &request("after-close", "Ada"),
+            TRUSTED_ORIGIN,
+            Duration::from_secs(1),
+        );
+        assert_eq!(response.id.as_deref(), Some("after-close"));
+        assert_eq!(response.error.unwrap().code, "shutdown");
+    }
+
+    #[test]
+    fn shutdown_rejects_queued_work_and_wakes_the_worker() {
+        let dispatcher = AsyncDispatcher::new(2, |_request| {
+            thread::sleep(Duration::from_millis(200));
+            Ok(greet_result("late"))
+        });
+        let first = dispatcher
+            .submit(
+                &request("queued-1", "Ada"),
+                TRUSTED_ORIGIN,
+                Duration::from_secs(1),
+            )
+            .unwrap();
+        let second = dispatcher
+            .submit(
+                &request("queued-2", "Ada"),
+                TRUSTED_ORIGIN,
+                Duration::from_secs(1),
+            )
+            .unwrap();
+        thread::sleep(Duration::from_millis(10));
+        dispatcher.shutdown();
+        assert_eq!(first.recv().unwrap().error.unwrap().code, "shutdown");
+        assert_eq!(second.recv().unwrap().error.unwrap().code, "shutdown");
     }
 }

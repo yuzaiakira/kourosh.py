@@ -35,6 +35,7 @@ PYTHONPATH="$repo_root/python${PYTHONPATH:+:$PYTHONPATH}" python3 -m unittest di
 if command -v node >/dev/null 2>&1; then
   node --check examples/hello-vanilla/bridge.js
   node --check examples/hello-vanilla/app.js
+  node tests/bridge.test.js
 else
   echo "node is not installed; JavaScript syntax checks were not run" >&2
 fi
