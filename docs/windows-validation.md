@@ -42,3 +42,10 @@ kourosh build --target windows --format installer ...
 ```
 
 It requires Inno Setup and is blocked when `ISCC.exe` is unavailable.
+
+The current cloud-side handoff is recorded in
+[`docs/windows-validation-report.json`](windows-validation-report.json). It
+contains the detected host, static-check evidence, every Windows gate with a
+`PASS`, `FAIL`, `BLOCKED`, or `NOT RUN` status, and the exact PowerShell
+commands to run on a real Windows machine. A Linux report must not be treated
+as Windows runtime evidence.
