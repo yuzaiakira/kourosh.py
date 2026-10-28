@@ -21,3 +21,9 @@ distribution, WebView2 version, and the commit SHA tested.
 The script does not inject test JavaScript or claim a result without a human
 checking the visible window. Portable bridge, malformed-request, timeout,
 concurrency, and shutdown tests run through `scripts/check.ps1` independently.
+
+To smoke-test a generated Phase 2 project after the bundled host check, install
+the package and run `kourosh dev` from the generated project directory. The
+same visible assertions should show the generated title and the project's
+`@app.expose` greeting. Record the project path and commit SHA with the host
+version; do not count a Linux `kourosh dev` validation message as GUI evidence.

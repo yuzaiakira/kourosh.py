@@ -1,10 +1,12 @@
 # Embedded CPython lifecycle
 
 `kourosh-python` uses PyO3's embedded interpreter initialization and acquires
-the GIL only around Python module loading and function calls. The first proof
-of concept loads a small in-memory module containing `greet(name)`. Python
-exceptions are converted to a generic structured bridge error so traceback
-contents are not sent to the renderer.
+the GIL only around Python module loading and function calls. The packaged
+proof of concept loads a small in-memory module containing `greet(name)`;
+developer mode loads a validated `main.py`, reads its `kourosh.App` registry,
+and invokes its `_dispatch` method with JSON arguments. Python exceptions are
+converted to structured bridge errors so traceback contents are not sent to
+the renderer.
 
 The native host owns the runtime for the window lifetime. Python calls run on
 the bridge worker path, never directly on the UI event-loop callback. Closing a

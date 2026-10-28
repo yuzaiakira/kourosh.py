@@ -2,10 +2,12 @@
 
 The bridge accepts JSON envelopes shaped as `{ "id", "method", "args" }`.
 The Rust host checks the source document policy before it passes the message to
-`kourosh-bridge`. The validator uses a default-deny method registry, accepts
-only `greet`, requires a string `name`, and bounds request, ID, and argument
-sizes. Responses always contain the request ID, an `ok` flag, and either a
-result or a structured `{code, message}` error.
+`kourosh-bridge`. The validator uses a default-deny method registry. The
+packaged demo accepts `greet`; a developer app supplies its explicit
+`@app.expose` names to the same validator. `greet` requires a string `name`,
+while other registered methods receive a JSON object. Request, ID, and
+argument sizes remain bounded. Responses always contain the request ID, an
+`ok` flag, and either a result or a structured `{code, message}` error.
 
 When validation fails before queueing, Rust recovers a valid ID from the raw
 envelope so the matching Promise is rejected instead of waiting for its timer.

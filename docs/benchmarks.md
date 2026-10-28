@@ -17,21 +17,28 @@ Measurements are evidence for the named machine and build, not product
 promises. Record OS build, CPU, Python version, WebView2 version, Rust profile,
 sample count, and concurrency beside any result used for a regression decision.
 
-## Current Linux measurement
+## Phase 2 Linux measurement
 
-The Codex Cloud Linux x86_64 runtime uses Python 3.12.14, Rust 1.99.1, and an
-optimized release benchmark. With `KOUROSH_BENCH_SAMPLES=100` and
-`KOUROSH_BENCH_CONCURRENCY=8`, one run measured:
+The Codex Cloud Linux 6.18.55 x86_64 runtime uses an Intel Xeon Platinum
+8573C (5 visible CPUs), Python 3.12.14, Rust 1.99.1, and an optimized release
+benchmark. With `KOUROSH_BENCH_SAMPLES=100` and
+`KOUROSH_BENCH_CONCURRENCY=8`, one run after the Phase 2 runtime changes
+measured:
 
 | Measurement | Result |
 | --- | ---: |
-| Python runtime startup | 17.357 ms |
-| RPC round trip p50 | 72 µs |
-| RPC round trip p95 | 283 µs |
-| RPC round trip p99 | 764 µs |
+| Python runtime startup | 12.941 ms |
+| RPC round trip p50 | 128 µs |
+| RPC round trip p95 | 647 µs |
+| RPC round trip p99 | 1,018 µs |
 | Concurrent completed requests | 100 |
-| Concurrent elapsed time | 15.166 ms |
-| Concurrent throughput | 6,593.768 requests/s |
+| Concurrent elapsed time | 21.218 ms |
+| Concurrent throughput | 4,713.072 requests/s |
+
+The Phase 1 run with the same parameters was 17.357 ms startup, 72/283/764
+µs p50/p95/p99, and 6,593.768 requests/s. The Phase 2 run adds the native
+method-registry path but still benchmarks the built-in `greet` handler, so this
+single run is a comparison point rather than a performance conclusion.
 
 Host startup and idle memory were not measured because the Linux host
 intentionally exits with a WebView2-required message. These values are one

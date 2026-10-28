@@ -3,7 +3,10 @@
 The renderer is treated as potentially compromised. The host rejects
 unapproved navigation, checks the trusted local document policy before bridge
 dispatch, validates every envelope, bounds payloads, applies a timeout, and
-uses a default-deny method registry. Python receives only validated arguments.
+uses a default-deny method registry. A developer app's method list is read
+from its explicit Python registry and enforced again in Rust. Python receives
+only validated arguments. Frontend files are canonicalized under the
+configured project directory before the custom protocol serves them.
 
 The package itself is trusted input for this prototype; a malicious package,
 dependency supply-chain compromise, and renderer escape still require code
