@@ -36,6 +36,8 @@ if command -v node >/dev/null 2>&1; then
   node --check examples/hello-vanilla/bridge.js
   node --check examples/hello-vanilla/app.js
   node --check packages/sdk/kourosh.js
+  node --check packages/sdk/index.js
+  node --check scripts/bench-sdk.mjs
   node tests/bridge.test.js
 else
   echo "node is not installed; JavaScript syntax checks were not run" >&2

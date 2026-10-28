@@ -14,7 +14,12 @@ const sdkSource = fs.readFileSync(
 );
 
 function createBridge(postMessage, source = bridgeSource) {
-  const window = { ipc: { postMessage } };
+  const listeners = new Map();
+  const window = {
+    ipc: { postMessage },
+    addEventListener(name, callback) { listeners.set(name, callback); },
+    __listeners: listeners,
+  };
   const context = {
     window,
     TextEncoder,
@@ -78,4 +83,22 @@ test("ships the same framework-independent SDK contract", async () => {
   const promise = window.kourosh.invoke("greet", { name: "SDK" });
   window.__kouroshReceive({ id: rawRequest.id, ok: true, result: { message: "Hello, SDK!" } });
   assert.deepEqual(await promise, { message: "Hello, SDK!" });
+});
+
+test("maps structured bridge failures through the official module SDK", async () => {
+  const { invoke, KouroshError } = await import("../packages/sdk/index.js");
+  const previous = globalThis.kourosh;
+  globalThis.kourosh = { invoke: async () => { throw { code: "method_not_allowed", message: "denied" }; } };
+  await assert.rejects(invoke("secret", {}), (error) => {
+    assert.ok(error instanceof KouroshError);
+    return error.code === "method_not_allowed" && error.message === "denied";
+  });
+  globalThis.kourosh = previous;
+});
+
+test("rejects pending calls when the renderer reloads", async () => {
+  const window = createBridge(() => {});
+  const pending = window.kourosh.invoke("greet", { name: "reload" });
+  window.__listeners.get("beforeunload")();
+  await assert.rejects(pending, (error) => error.code === "window_reloaded");
 });

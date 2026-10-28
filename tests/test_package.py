@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from kourosh import App, KouroshError, __version__
-from kourosh.cli import create_project, load_config, main, run_dev
+from kourosh.cli import create_project, load_config, main, run_dev, run_frontend_build
 
 
 class PackageTests(unittest.TestCase):
@@ -66,6 +66,35 @@ class PackageTests(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 load_config(root)
+
+    def test_react_and_typescript_generators_are_self_contained(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary)
+            react = create_project("react_app", destination, ui="react")
+            react_config = load_config(react, require_frontend=False)
+            self.assertEqual(react_config.frontend_type, "vite")
+            self.assertTrue((react / "src" / "App.jsx").is_file())
+            self.assertTrue((react / "vendor" / "@kourosh" / "sdk" / "index.d.ts").is_file())
+            package = json.loads((react / "package.json").read_text(encoding="utf-8"))
+            self.assertEqual(package["dependencies"]["@kourosh/sdk"], "file:vendor/@kourosh/sdk")
+
+            typescript = create_project("typescript_app", destination, ui="react", typescript=True)
+            ts_config = load_config(typescript, require_frontend=False)
+            self.assertEqual(ts_config.frontend_type, "vite")
+            self.assertTrue((typescript / "src" / "App.tsx").is_file())
+            self.assertTrue((typescript / "tsconfig.json").is_file())
+            with self.assertRaises(RuntimeError):
+                run_frontend_build(typescript)
+
+            with self.assertRaises(ValueError):
+                create_project("bad", destination, ui="vanilla", typescript=True)
+
+            (react / "kourosh.toml").write_text(
+                '[app]\ntitle="React"\nentrypoint="main.py"\nfrontend="dist/index.html"\n[frontend]\ntype="vite"\nroot="."\ndist="dist/index.html"\ndev_port=80\n',
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                load_config(react, require_frontend=False)
 
     def test_dev_reports_linux_limitation_without_mocking_host(self) -> None:
         if os.name == "nt":

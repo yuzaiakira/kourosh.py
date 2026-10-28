@@ -1,5 +1,7 @@
 (() => {
   "use strict";
+  if (window.__kouroshInstalled) return;
+  window.__kouroshInstalled = true;
   const MAX_REQUEST_BYTES = 64 * 1024;
   const MAX_PENDING_REQUESTS = 32;
   const DEFAULT_TIMEOUT_MS = 5000;
@@ -28,6 +30,10 @@
     }
     pending.clear();
   };
+  window.addEventListener?.("beforeunload", () => window.__kouroshRejectAll({
+    code: "window_reloaded",
+    message: "the renderer is reloading",
+  }));
 
   window.kourosh = Object.freeze({
     invoke(method, args, options = {}) {

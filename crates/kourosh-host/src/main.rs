@@ -15,6 +15,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 struct HostOptions {
     app: Option<std::path::PathBuf>,
     frontend: Option<std::path::PathBuf>,
+    dev_url: Option<String>,
+    trusted_origin: String,
     title: String,
     width: u32,
     height: u32,
@@ -22,9 +24,7 @@ struct HostOptions {
 
 #[cfg(windows)]
 fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
-    use kourosh_bridge::{
-        response_for_error, AsyncDispatcher, BridgeError, RpcResponse, TRUSTED_ORIGIN,
-    };
+    use kourosh_bridge::{response_for_error, AsyncDispatcher, BridgeError, RpcResponse};
     use kourosh_python::PythonRuntime;
     use std::path::Path;
     use std::sync::Arc;
@@ -65,6 +65,7 @@ fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
     let dispatcher_for_lifecycle = Arc::clone(&dispatcher);
     let runtime_for_lifecycle = Arc::clone(&runtime);
     let proxy_for_ipc = proxy.clone();
+    let trusted_origin = options.trusted_origin.clone();
 
     let static_root = match options.frontend.as_deref() {
         Some(frontend) => frontend
@@ -75,21 +76,27 @@ fn run_windows_host() -> Result<(), Box<dyn std::error::Error>> {
             .join("../../examples/hello-vanilla")
             .canonicalize()?,
     };
+    let initial_url = options
+        .dev_url
+        .clone()
+        .unwrap_or_else(|| "https://kourosh.app/index.html".to_owned());
+    let navigation_origin = trusted_origin.clone();
+    let ipc_origin = trusted_origin.clone();
     let webview = WebViewBuilder::new()
         .with_custom_protocol("kourosh".to_owned(), move |_webview_id, request| {
             custom_protocol_response(&static_root, request.uri().path())
         })
         .with_https_scheme(true)
-        .with_url("https://kourosh.app/index.html")
+        .with_url(&initial_url)
         // The initial document is packaged HTML. Any attempt to navigate away
         // is rejected before it can gain access to the IPC callback.
-        .with_navigation_handler(|url| {
-            url == TRUSTED_ORIGIN || url.starts_with("https://kourosh.app/")
+        .with_navigation_handler(move |url| {
+            url == navigation_origin || url.starts_with(&format!("{navigation_origin}/"))
         })
         .with_ipc_handler(move |request| {
             let uri = request.uri().to_string();
-            let origin = if uri == TRUSTED_ORIGIN || uri.starts_with("https://kourosh.app/") {
-                TRUSTED_ORIGIN
+            let origin = if uri == ipc_origin || uri.starts_with(&format!("{ipc_origin}/")) {
+                ipc_origin.as_str()
             } else {
                 "untrusted"
             };
@@ -200,6 +207,8 @@ fn parse_host_options() -> Result<HostOptions, Box<dyn std::error::Error>> {
 
     let mut app = None;
     let mut frontend = None;
+    let mut dev_url = None;
+    let mut trusted_origin = kourosh_bridge::TRUSTED_ORIGIN.to_owned();
     let mut title = "Kourosh.py".to_owned();
     let mut width = 960;
     let mut height = 640;
@@ -215,6 +224,12 @@ fn parse_host_options() -> Result<HostOptions, Box<dyn std::error::Error>> {
                     PathBuf::from(next_argument("--frontend", &mut args)?.as_str())
                         .canonicalize()?,
                 )
+            }
+            "--dev-url" => {
+                let value = next_argument("--dev-url", &mut args)?;
+                let origin = validate_dev_url(&value)?;
+                dev_url = Some(value);
+                trusted_origin = origin;
             }
             "--title" => title = next_argument("--title", &mut args)?,
             "--width" => width = next_argument("--width", &mut args)?.parse()?,
@@ -234,10 +249,28 @@ fn parse_host_options() -> Result<HostOptions, Box<dyn std::error::Error>> {
     Ok(HostOptions {
         app,
         frontend,
+        dev_url,
+        trusted_origin,
         title,
         width,
         height,
     })
+}
+
+#[cfg(windows)]
+fn validate_dev_url(url: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let prefix = "http://127.0.0.1:";
+    let port_start = url
+        .strip_prefix(prefix)
+        .ok_or("development URL must use http://127.0.0.1:<port>")?;
+    let (port, path) = port_start.split_once('/').unwrap_or((port_start, ""));
+    let port_number: u16 = port
+        .parse()
+        .map_err(|_| "development URL has an invalid port")?;
+    if port_number == 0 || path != "" && path != "index.html" {
+        return Err("development URL must contain only a loopback origin".into());
+    }
+    Ok(format!("{prefix}{port_number}"))
 }
 
 #[cfg(windows)]
