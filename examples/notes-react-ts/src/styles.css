@@ -1,0 +1,10 @@
+:root { font: 16px system-ui, sans-serif; color: #20212a; background: #f3f4f8; }
+body { margin: 0; }
+main { max-width: 56rem; margin: 3rem auto; padding: 2rem; background: #fff; border-radius: 1rem; box-shadow: 0 1rem 3rem #20212a18; }
+.editor { display: grid; gap: .75rem; margin: 1.5rem 0; }
+input, textarea, button { font: inherit; padding: .7rem .8rem; }
+textarea { min-height: 7rem; resize: vertical; }
+.notes { display: grid; gap: 1rem; }
+article { padding: 1rem; border: 1px solid #dfe1eb; border-radius: .75rem; }
+article h2 { margin-top: 0; }
+.error { color: #9b1c31; }

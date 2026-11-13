@@ -1,0 +1,354 @@
+{
+  "branch": "work",
+  "checks": [
+    {
+      "details": "Linux cloud host identified; Windows execution was not attempted or simulated.",
+      "id": "environment.host-os",
+      "status": "PASS"
+    },
+    {
+      "details": "Native Windows 10/11 x64 host is required by scripts/package-smoke.ps1.",
+      "id": "environment.windows-native-workflow",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "scripts/check.sh exited 0; Rust, Python, JavaScript, and unsupported-platform reporting passed.",
+      "id": "cloud.static-checks",
+      "status": "PASS"
+    },
+    {
+      "details": "scripts/release-check.sh exited 0 with all 17 checks passed.",
+      "id": "cloud.release-check",
+      "status": "PASS"
+    },
+    {
+      "details": "x86_64-pc-windows-gnu cross-target Clippy passed; this is not runtime validation.",
+      "id": "cloud.windows-target-clippy",
+      "status": "PASS"
+    },
+    {
+      "details": "Requires genuine Windows executable launch.",
+      "id": "portable.native-executable-launch",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Windows packaged runtime initialization requires native execution.",
+      "id": "portable.bundled-cpython-3.12",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "WebView2 rendering requires Windows WebView2 Evergreen Runtime.",
+      "id": "portable.webview2-rendering",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Windows WebView2-to-Python round trip requires native execution.",
+      "id": "portable.javascript-python-rpc",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Native renderer observation is pending.",
+      "id": "portable.python-exception-propagation",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Packaged Windows process shutdown is pending.",
+      "id": "portable.clean-shutdown",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Packaged asset loading must be observed from the relocated Windows package.",
+      "id": "portable.production-assets",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Clean Windows package inspection is pending.",
+      "id": "portable.no-system-python",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Clean Windows package inspection is pending.",
+      "id": "portable.no-node-runtime",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "tests.test_notes_example.test_sqlite_crud_uses_registered_methods passed on Linux.",
+      "id": "notes.sqlite-crud-cloud",
+      "status": "PASS"
+    },
+    {
+      "details": "React/TypeScript WebView2 integration is pending.",
+      "id": "notes.sqlite-crud-windows",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Requires repeated native Windows launches.",
+      "id": "notes.persistence-restart",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Requires observing Windows LOCALAPPDATA behavior.",
+      "id": "notes.per-application-user-data",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Requires relocated Windows package launch.",
+      "id": "notes.unicode-path",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Requires read-only Windows package launch.",
+      "id": "notes.read-only-install",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Native UI error presentation is pending.",
+      "id": "notes.safe-errors",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Bridge shutdown and pending-work cleanup tests passed; Windows UI observation remains blocked.",
+      "id": "notes.rpc-shutdown-cleanup",
+      "status": "PASS"
+    },
+    {
+      "details": "No clean Windows VM is available in this cloud session.",
+      "id": "clean-machine.portable-smoke",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Windows WebView2 prerequisite behavior cannot be observed on Linux.",
+      "id": "clean-machine.webview2-present",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Requires a Windows machine without Evergreen WebView2; no destructive system change was attempted.",
+      "id": "clean-machine.webview2-missing-diagnostic",
+      "status": "NOT RUN"
+    },
+    {
+      "details": "Inno Setup is a Windows-only prerequisite and was not available in this host.",
+      "id": "installer.inno-setup-availability",
+      "status": "NOT RUN"
+    },
+    {
+      "details": "Requires Inno Setup and native Windows execution.",
+      "id": "installer.build-install-launch",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Requires installed Windows application execution.",
+      "id": "installer.shortcuts-data-uninstall",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Windows startup measurement requires native host and WebView2.",
+      "id": "performance.cold-start",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Windows startup measurement requires native host and WebView2.",
+      "id": "performance.warm-start",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Visible-window timing requires a real Windows GUI.",
+      "id": "performance.first-visible-window",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Windows process-tree working-set measurement requires native execution.",
+      "id": "performance.process-tree-memory",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "WebView2 child-process measurement requires Windows.",
+      "id": "performance.webview2-memory",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Windows idle CPU measurement requires native execution.",
+      "id": "performance.idle-cpu",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Linux embedded-Python RPC measurements are not Windows measurements.",
+      "id": "performance.end-to-end-rpc",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Windows shutdown measurement requires native execution.",
+      "id": "performance.shutdown-duration",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Windows portable artifact must be built and measured on Windows.",
+      "id": "performance.portable-package-size",
+      "status": "BLOCKED"
+    },
+    {
+      "details": "Installer was not built because Inno Setup and Windows are unavailable.",
+      "id": "performance.installer-size",
+      "status": "NOT RUN"
+    },
+    {
+      "details": "v0.1.0-alpha.1 publication is blocked until mandatory Windows checks pass.",
+      "id": "release.gate",
+      "status": "BLOCKED"
+    }
+  ],
+  "cloud_evidence": {
+    "benchmark_scope": "Linux embedded-Python/Rust dispatcher only; no Windows/WebView2 claims.",
+    "cli_benchmark": "PASS; kourosh --version 168 ms, kourosh doctor --json 155 ms.",
+    "frontend_benchmark": "PASS; Vite build 1196 ms, dist 151207 bytes, dev server ready 457 ms.",
+    "quick_stress": "PASS; active=0 queued=0 after shutdown; RSS 2.41-5.09 MiB; file descriptors 4 throughout.",
+    "release_report": {
+      "artifacts": [
+        {
+          "bytes": 22246,
+          "name": "kourosh-0.1.0a1-py3-none-any.whl",
+          "sha256": "dc9e4103a9fbdfc8d4dbc57b2ed15294cf196ba44da5a684e8e59ed161fcb6b3"
+        },
+        {
+          "bytes": 134716,
+          "name": "kourosh-0.1.0a1.tar.gz",
+          "sha256": "a7e53b9cec9a7ee4a4f310aecd4450d369b580fef44f14d96aea84871ef07cb3"
+        }
+      ],
+      "branch": "work",
+      "checks": [
+        {
+          "detail": "command completed",
+          "name": "clean_worktree",
+          "status": "passed"
+        },
+        {
+          "detail": "--json",
+          "name": "version_consistency",
+          "status": "passed"
+        },
+        {
+          "detail": "python3",
+          "name": "python_tests",
+          "status": "passed"
+        },
+        {
+          "detail": "command completed",
+          "name": "python_compile",
+          "status": "passed"
+        },
+        {
+          "detail": "--all",
+          "name": "rust_format",
+          "status": "passed"
+        },
+        {
+          "detail": "--workspace",
+          "name": "rust_tests",
+          "status": "passed"
+        },
+        {
+          "detail": "--workspace",
+          "name": "rust_clippy",
+          "status": "passed"
+        },
+        {
+          "detail": "PYO3_CROSS_PYTHON_VERSION=3.12",
+          "name": "windows_target_clippy",
+          "status": "passed"
+        },
+        {
+          "detail": "python3",
+          "name": "wheel_build",
+          "status": "passed"
+        },
+        {
+          "detail": "--output-dir",
+          "name": "source_archive",
+          "status": "passed"
+        },
+        {
+          "detail": "test -s LICENSE && test -s docs/dependencies-licensing.md",
+          "name": "license_metadata",
+          "status": "passed"
+        },
+        {
+          "detail": "command completed",
+          "name": "docs_consistency",
+          "status": "passed"
+        },
+        {
+          "detail": "command completed",
+          "name": "no_workflows",
+          "status": "passed"
+        },
+        {
+          "detail": "command completed",
+          "name": "javascript_tests",
+          "status": "passed"
+        },
+        {
+          "detail": "command completed",
+          "name": "javascript_syntax",
+          "status": "passed"
+        },
+        {
+          "detail": "command completed",
+          "name": "frontend_checks",
+          "status": "passed"
+        },
+        {
+          "detail": "python3",
+          "name": "packaging_tests",
+          "status": "passed"
+        }
+      ],
+      "commit": "3581ed585373456e5ea69ffcc546aa611b08a919",
+      "ok": true,
+      "platform": {
+        "python": "3.12.14",
+        "system": "posix"
+      },
+      "schema": 1,
+      "tool": "kourosh-release-check"
+    },
+    "sdk_benchmark": "PASS; 10000 wrapper calls, 1.207 microseconds per call."
+  },
+  "commit": "3581ed585373456e5ea69ffcc546aa611b08a919",
+  "environment": {
+    "distribution": "Debian GNU/Linux 13 (trixie)",
+    "machine": "x86_64",
+    "node": "v24.19.0",
+    "npm": "11.9.0",
+    "python": "3.12.14",
+    "release": "6.18.55",
+    "rust": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "system": "Linux",
+    "windows_execution_available": false,
+    "windows_tooling": {
+      "inno_setup": false,
+      "powershell": false,
+      "pwsh": false,
+      "webview2_runtime": false,
+      "wine": false
+    }
+  },
+  "generated_at_utc": "2026-10-28T20:49:05Z",
+  "project": "kourosh.py",
+  "release": "v0.1.0-alpha.1",
+  "release_recommendation": "NO-GO",
+  "schema": 1,
+  "version_map": {
+    "javascript": "0.1.0-alpha.1",
+    "protocol": 1,
+    "python": "0.1.0a1",
+    "rust": "0.1.0"
+  },
+  "windows_handoff": {
+    "benchmark_command": ".\\scripts\\bench.ps1 -Samples 1000 -Concurrency 8 -ResultsPath .\\windows-benchmark-results.json",
+    "command": ".\\scripts\\package-smoke.ps1 -ProjectPath .\\examples\\notes-react-ts -PythonRuntime C:\\runtimes\\python-3.12-embed-amd64 -HostPath .\\target\\x86_64-pc-windows-msvc\\release\\kourosh-host.exe -ResultsPath .\\windows-validation-results.json",
+    "documentation": "docs/windows-validation.md",
+    "entrypoint": "scripts/package-smoke.ps1",
+    "missing-runtime_test": "Run the same entry point on a disposable Windows VM without Evergreen WebView2 and retain the structured diagnostic; do not uninstall shared dependencies on a normal workstation."
+  }
+}

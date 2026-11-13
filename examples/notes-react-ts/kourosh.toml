@@ -1,0 +1,19 @@
+[app]
+name = "Kourosh Notes"
+version = "0.2.0"
+identifier = "com.kourosh.notes-example"
+title = "Kourosh Notes"
+width = 980
+height = 720
+entrypoint = "main.py"
+frontend = "dist/index.html"
+
+[frontend]
+type = "vite"
+root = "."
+dist = "dist/index.html"
+dev_port = 5174
+
+[build]
+target = "windows"
+format = "portable"

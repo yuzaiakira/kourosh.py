@@ -1,0 +1,35 @@
+$ErrorActionPreference = "Stop"
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $RepoRoot
+
+cargo fmt --all -- --check
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+
+$env:PYTHONPATH = "$RepoRoot/python;$env:PYTHONPATH"
+python -m compileall -q python tests
+python -m unittest discover -s tests -p "test_*.py" -q
+python scripts/version-check.py --json | Out-Null
+if (Get-Command node -ErrorAction SilentlyContinue) {
+    node --check examples/hello-vanilla/bridge.js
+    node --check examples/hello-vanilla/app.js
+    node --check examples/notes-react-ts/public/kourosh-bridge.js
+    node --check packages/sdk/kourosh.js
+    node --check packages/sdk/index.js
+    node --check scripts/bench-sdk.mjs
+    node tests/bridge.test.js
+} else {
+    Write-Warning "node is not installed; JavaScript syntax checks were not run"
+}
+
+if ($env:OS -ne "Windows_NT") {
+    Write-Output "Windows WRY/WebView2 GUI smoke test not run on this host"
+}
+
+if (Get-Command zensical -ErrorAction SilentlyContinue) {
+    python scripts/check-docs.py
+    zensical build --clean
+    if (-not (Test-Path ".\site\index.html")) { throw "documentation site did not produce site/index.html" }
+} else {
+    Write-Warning "Zensical is not installed; documentation site checks were not run"
+}

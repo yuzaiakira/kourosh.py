@@ -1,0 +1,136 @@
+[project]
+site_name = "Kourosh.py"
+site_description = "Python-first desktop applications with a secure asynchronous browser bridge."
+site_author = "Akira Yuzai"
+repo_name = "yuzaiakira/kourosh.py"
+repo_url = "https://github.com/yuzaiakira/kourosh.py"
+edit_uri = "edit/work/docs/"
+copyright = "Kourosh.py is experimental alpha software."
+nav = [
+  { "Home" = "index.md" },
+  { "Introduction" = [
+    { "What is Kourosh.py?" = "introduction/what-is-kourosh.md" },
+    { "Features" = "introduction/features.md" },
+    { "Architecture" = "introduction/architecture.md" },
+    { "Supported platforms" = "introduction/platforms.md" },
+    { "Alpha limitations" = "known-limitations.md" },
+  ] },
+  { "Getting started" = [
+    { "Prerequisites" = "getting-started/prerequisites.md" },
+    { "Installation" = "getting-started/installation.md" },
+    { "Quick start" = "getting-started/quickstart.md" },
+    { "Project structure" = "project-structure.md" },
+  ] },
+  { "Python development" = [
+    { "App and window configuration" = "python/app.md" },
+    { "Exposing Python handlers" = "python/handlers.md" },
+    { "Lifecycle, cancellation, and logging" = "python/lifecycle.md" },
+    { "Python SDK reference" = "api/python.md" },
+  ] },
+  { "Frontend development" = [
+    { "HTML, CSS, and JavaScript" = "frontend/browser.md" },
+    { "JavaScript and TypeScript SDK" = "api/javascript.md" },
+    { "React and TypeScript" = "frontend/react-typescript.md" },
+    { "Vite development" = "vite-development.md" },
+    { "Production frontend builds" = "frontend/production.md" },
+  ] },
+  { "Developer CLI" = [
+    { "Command overview" = "cli/reference.md" },
+    { "Configuration" = "cli/configuration.md" },
+    { "Diagnostics" = "troubleshooting.md" },
+  ] },
+  { "Build and distribution" = [
+    { "Build overview" = "build/overview.md" },
+    { "Portable Windows distribution" = "portable-distribution.md" },
+    { "Embedded CPython" = "python-runtime.md" },
+    { "WebView2" = "webview2.md" },
+    { "Installer" = "installer.md" },
+    { "Windows validation" = "windows-validation.md" },
+  ] },
+  { "Guides" = [
+    { "JavaScript-to-Python RPC" = "guides/rpc.md" },
+    { "SQLite and application data" = "guides/sqlite.md" },
+    { "Trusted plugins" = "architecture/plugins.md" },
+    { "Security and permissions" = "guides/security.md" },
+    { "Troubleshooting" = "troubleshooting.md" },
+  ] },
+  { "API reference" = [
+    { "Python SDK" = "api/python.md" },
+    { "JavaScript SDK" = "api/javascript.md" },
+    { "RPC protocol v1" = "api/protocol.md" },
+    { "Configuration schema" = "api/configuration.md" },
+    { "CLI reference" = "cli/reference.md" },
+    { "Runtime Adapter (experimental)" = "architecture/runtime-adapters.md" },
+  ] },
+  { "Examples" = [
+    { "Hello World" = "examples/hello.md" },
+    { "Vanilla JavaScript" = "examples/vanilla.md" },
+    { "React and TypeScript" = "examples/react.md" },
+    { "SQLite Notes" = "notes-example.md" },
+  ] },
+  { "Project" = [
+    { "Changelog" = "project/changelog.md" },
+    { "Compatibility" = "compatibility.md" },
+    { "Roadmap" = "ROADMAP.md" },
+    { "Known limitations" = "known-limitations.md" },
+    { "Contributing" = "project/contributing.md" },
+    { "Release process" = "release-process.md" },
+  ] },
+]
+
+extra_css = ["stylesheets/extra.css"]
+
+[project.theme]
+language = "en"
+features = [
+  "content.code.copy",
+  "content.code.select",
+  "navigation.footer",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.top",
+  "search.highlight",
+  "toc.follow",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Use system theme"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/yuzaiakira/kourosh.py"
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+toc.permalink = true
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.line_spans = "__span"
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.inlinehilite = {}
+pymdownx.keys = {}
+pymdownx.magiclink = {}
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+pymdownx.tabbed.alternate_style = true
+pymdownx.tasklist.custom_checkbox = true
+pymdownx.details = {}
+pymdownx.tilde = {}
